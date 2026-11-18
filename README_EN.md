@@ -26,9 +26,7 @@ A **Streamlit** tool that reconstructs Codeforces Virtual Participation (VP) res
 1. Read officially rated contest history from `user.rating` and identify virtual submissions via `user.status`.
 2. Prefer `author.startTimeSeconds` to distinguish repeated VP sessions, limit submissions to the contest duration, and use `contest.standings` to estimate a historical rank. CF and ICPC scoring are handled separately; unsupported contest types are not silently interpreted as CF.
 3. For each potentially rated event, use `contest.ratingChanges` to find real participants with nearby pre-contest Ratings and rankings. The proxy distance is:
-   [
-   cost = 0.8|R_i-R| + 1.5|rank_i-rank|
-   ]
+   `cost = 0.8 × |R_i − R| + 1.5 × |rank_i − rank|`
    Up to five nearest proxies are selected. When at least three are available, the largest and smallest adjusted Deltas are removed before averaging.
 4. Simulate the timeline twice. **VP modeled contribution = final model Rating with VP − final model Rating with REAL contests only.** This is a counterfactual estimate, **not** the points Codeforces would necessarily have awarded.
 5. Surface warnings when contest start times, standings, or historical Rating changes are unavailable. Missing data can make a simulation incomplete.
