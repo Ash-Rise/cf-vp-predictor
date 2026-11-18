@@ -38,8 +38,8 @@ export default function({parentElement, data, setStateValue}) {
   const storageKey = 'cf-vp-predictor:last-handle';
 
   // Only the first mount reads localStorage. Later reruns use Python state.
-  if (!parentElement.dataset.initialized) {
-    parentElement.dataset.initialized = '1';
+  if (!input.dataset.initialized) {
+    input.dataset.initialized = '1';
     let saved = null;
     try { saved = window.localStorage.getItem(storageKey); } catch (_) {}
     const initial = saved && saved.trim() ? saved.trim() : (data.value || '');
