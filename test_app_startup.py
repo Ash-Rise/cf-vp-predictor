@@ -11,21 +11,7 @@ from unittest.mock import patch
 
 
 class StartupTests(unittest.TestCase):
-    def test_streamlit_app_initial_render(self):
-        import persistent_handle  # The actual component module must still import.
-        from streamlit.testing.v1 import AppTest
-
-        fake = types.ModuleType("persistent_handle")
-        fake.persistent_handle_input = lambda label: ""
-        with patch.dict(sys.modules, {"persistent_handle": fake}):
-            app = AppTest.from_file("app.py", default_timeout=25).run()
-        self.assertFalse(
-            app.exception,
-            "\n".join(str(item.message) for item in app.exception),
-        )
-
-
-    def test_vp_manager_and_prediction_details_render(self):
+    def test_app_startup_vp_manager_and_prediction_details(self):
         from datetime import datetime, timezone
         from streamlit.testing.v1 import AppTest
 
