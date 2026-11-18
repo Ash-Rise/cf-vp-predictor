@@ -63,6 +63,12 @@ TEXT = {
         "detail_no_proxies": "No proxy estimate (Unrated or missing rating data).",
         "detail_penalty": "ICPC penalty: {minutes} min",
         "mobile_mode": "Mobile-friendly cards", "card_link": "Open contest",
+        "preview_title": "Identified sessions: {total} (showing first 10 while loading Rating data)",
+        "detail_problem": "Problem", "detail_minute": "AC minute",
+        "detail_wa": "Wrong attempts", "proxy_rating": "Pre-contest Rating",
+        "proxy_rank": "Rank", "proxy_official": "Official Delta",
+        "proxy_adjustment": "Rank adjustment", "proxy_adjusted": "Adjusted Delta",
+        "proxy_distance": "Distance", "proxy_handle": "Handle",
     },
     "中文": {
         "title": "Codeforces VP Rating 模拟器",
@@ -109,6 +115,12 @@ TEXT = {
         "detail_no_proxies": "暂无参考选手数据（Unrated 或官方历史数据缺失）。",
         "detail_penalty": "ICPC 罚时：{minutes} 分钟",
         "mobile_mode": "手机卡片视图", "card_link": "打开比赛",
+        "preview_title": "已识别 {total} 场比赛（正在读取 Rating 数据，暂展示前 10 场）",
+        "detail_problem": "题目", "detail_minute": "通过时间（分钟）",
+        "detail_wa": "错误提交", "proxy_rating": "赛前 Rating",
+        "proxy_rank": "排名", "proxy_official": "官方 Delta",
+        "proxy_adjustment": "排名修正", "proxy_adjusted": "调整后 Delta",
+        "proxy_distance": "距离", "proxy_handle": "选手",
     },
 }
 
@@ -134,6 +146,7 @@ def load_analysis(handle):
     """Load network-derived data once; keep it independent of UI VP exclusions."""
     status = st.empty()
     progress = st.progress(0)
+    preview = st.empty()
     warnings = []
     blocking_issues = []
 
@@ -194,6 +207,21 @@ def load_analysis(handle):
         progress.progress(14 + int(37 * n / max(total, 1)))
 
     events.sort(key=lambda event: (event["ts"], event["key"]))
+    if events:
+        with preview.container():
+            st.caption(T["preview_title"].format(total=len(events)))
+            st.dataframe(
+                pd.DataFrame([
+                    {
+                        T["contest"]: row["name"],
+                        T["date"]: _date(row["ts"]),
+                        T["rank"]: row["rank"],
+                        "VP": row["type"] == "VP",
+                    }
+                    for row in events[:10]
+                ]),
+                hide_index=True, width="stretch",
+            )
     contest_ids = sorted({event["cid"] for event in events})
     changes_by_cid = {}
     for n, cid in enumerate(contest_ids, 1):
@@ -211,6 +239,7 @@ def load_analysis(handle):
 
     progress.empty()
     status.empty()
+    preview.empty()
     return {
         "handle": handle,
         "events": events,
@@ -451,7 +480,7 @@ st.subheader(T["details"])
 if vp_events:
     choices = [e["key"] for e in vp_events]
     key = st.selectbox(
-        "Select VP" if lang == "English" else "选择一场 VP",
+        T["detail_select"],
         choices, format_func=lambda ident: (
             f"{event_by_key[ident]['name']} — {_date(event_by_key[ident]['ts'])}"
         ),
@@ -468,26 +497,38 @@ if vp_events:
     first.metric(T["rank"], stats["rank"])
     second.metric(T["solved"], stats["solved"])
     third.metric(T["score"], stats["score"])
-    fourth.metric("Estimated model Δ", "Unrated" if item and item.get("unrated")
+    fourth.metric(T["detail_delta"], "Unrated" if item and item.get("unrated")
                   else (f"{item['model_delta']:+d}" if item and not item.get("unavailable")
-                        else "Unavailable"))
+                        else T["detail_unavailable"]))
     if stats.get("penalty") is not None:
-        st.caption(f"ICPC penalty: {stats['penalty']} min")
-    with st.expander("Solved problems / 已通过题目", expanded=False):
+        st.caption(T["detail_penalty"].format(minutes=stats["penalty"]))
+    with st.expander(T["detail_solved"], expanded=False):
         if stats["problems"]:
-            st.dataframe(pd.DataFrame(stats["problems"]), hide_index=True,
-                         width="stretch")
+            st.dataframe(
+                pd.DataFrame(stats["problems"]).rename(columns={
+                    "problem": T["detail_problem"],
+                    "minute": T["detail_minute"],
+                    "wrong_attempts": T["detail_wa"],
+                }),
+                hide_index=True, width="stretch"
+            )
         else:
-            st.write("No accepted submissions.")
-    st.markdown("**Five nearest proxies / 五名参考选手**")
+            st.write(T["detail_empty"])
+    st.markdown(f"**{T['detail_proxies']}**")
     if item and item["proxies"]:
         st.dataframe(
-            pd.DataFrame(item["proxies"]), hide_index=True, width="stretch",
-            column_config={"Profile": st.column_config.LinkColumn(
-                "Codeforces profile", display_text="Open"
+            pd.DataFrame(item["proxies"]).rename(columns={
+                "Handle": T["proxy_handle"], "Profile": T["detail_profile"],
+                "Pre-contest Rating": T["proxy_rating"], "Rank": T["proxy_rank"],
+                "Official Delta": T["proxy_official"],
+                "Rank adjustment": T["proxy_adjustment"],
+                "Adjusted Delta": T["proxy_adjusted"],
+                "Distance": T["proxy_distance"],
+            }), hide_index=True, width="stretch",
+            column_config={T["detail_profile"]: st.column_config.LinkColumn(
+                T["detail_profile"], display_text=T["card_link"]
             )},
         )
-        st.caption("Proxy rows come from the original contest. The model trims the largest "
-                   "and smallest adjusted Deltas before averaging (when at least 3 exist).")
+        st.caption(T["detail_proxy_note"])
     else:
-        st.info("No proxy estimate (Unrated or unavailable historical rating data).")
+        st.info(T["detail_no_proxies"])
