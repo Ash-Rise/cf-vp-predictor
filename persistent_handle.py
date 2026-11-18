@@ -76,7 +76,7 @@ _handle_component = st.components.v2.component(
 )
 
 
-def persistent_handle_input(label, *, default="vivid_stareium"):
+def persistent_handle_input(label, *, default=""):
     """Render the input in the active container and return its committed value."""
     key = "cf_persistent_handle"
     state = st.session_state.get(key, {})
