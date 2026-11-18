@@ -10,7 +10,6 @@ from cf_api import CFAPIError, clear_personal_cache, get_json, get_user_submissi
 from chart_controls import PLOTLY_CONFIG, lock_rating_chart
 from persistent_handle import persistent_handle_input
 from predictor_core import build_official_events, modeled_vp_contribution, simulate
-from rating_rules import parse_unrated_vp_ids
 from vp_utils import group_vp_sessions, reconstruct_vp_result
 
 
@@ -22,15 +21,11 @@ TEXT = {
                     "These values are model estimates, not official Codeforces ratings.",
         "handle": "Codeforces Handle", "run": "Analyze / Refresh",
         "clear": "Refresh personal API cache",
-        "manual": "Unrated VP contest IDs (multiple; comma-separated)",
-        "manual_help": "Optional bulk exclusion: enter 1084, 1200, 1350. "
-                       "Use the VP table below to exclude individual sessions.",
         "official_toggle": "Compare with official rating",
         "unrated_toggle": "Show Unrated VPs on chart",
         "vp_section": "Virtual participation manager",
         "vp_help": "Tick Unrated for any VP session. The calculation updates without downloading data again. "
-                   "For repeated VPs of one contest, each session has its own checkbox. "
-                   "The optional ID field excludes all sessions of the specified contest.",
+                   "For repeated VPs of one contest, each session has its own checkbox.",
         "details": "Individual VP prediction details",
         "no_vps": "No supported virtual participation was found.",
         "metric_pred": "Simulated rating (with VP)",
@@ -43,21 +38,16 @@ TEXT = {
         "no_data": "Enter a valid Codeforces Handle and click Analyze.",
         "date": "Date (UTC)", "contest": "Contest", "rank": "Estimated rank",
         "excluded": "Unrated", "solved": "AC", "score": "Score",
-        "bulk_notice": "Excluded by contest ID: {ids}. These VP sessions count as Unrated even if their row checkbox is unchecked. Remove IDs from the sidebar to include them again.",
     },
     "中文": {
         "title": "Codeforces VP Rating 模拟器",
         "subtitle": "将虚拟参赛（VP）纳入历史时间线，估算 Rating 走势。结果仅供参考，不等同于官方 Rating。",
         "handle": "Codeforces Handle", "run": "开始分析 / 刷新数据",
         "clear": "刷新个人 API 缓存",
-        "manual": "Unrated VP 比赛 ID（支持多个，逗号分隔）",
-        "manual_help": "可批量输入 1084, 1200, 1350。也可以在下面的 VP 表格中逐场勾选，"
-                       "同一比赛的多次 VP 可分别指定。",
         "official_toggle": "对比官方 Rating",
         "unrated_toggle": "在图表显示 Unrated VP",
         "vp_section": "可交互的 VP 管理",
-        "vp_help": "勾选 Unrated 后直接重新模拟，无需重新下载数据。同一比赛多次 VP 分别显示。"
-                   "上方输入的比赛 ID 会排除对应比赛的全部 VP。",
+        "vp_help": "勾选 Unrated 后直接重新模拟，无需重新下载数据。同一比赛多次 VP 分别显示。",
         "details": "每场比赛的预测详情",
         "no_vps": "没有找到支持的 VP 记录。",
         "metric_pred": "模拟 Rating（含 VP）",
@@ -70,7 +60,6 @@ TEXT = {
         "no_data": "输入 Codeforces Handle，再点击开始分析。",
         "date": "日期（UTC）", "contest": "比赛", "rank": "估计排名",
         "excluded": "Unrated", "solved": "AC", "score": "得分",
-        "bulk_notice": "侧边栏已批量排除比赛 ID：{ids}。即使未勾选表格里的 Unrated，对应 VP 也不计分；如需恢复，请从侧边栏删除相应 ID。",
     },
 }
 
@@ -82,20 +71,9 @@ st.caption(T["subtitle"])
 with st.sidebar:
     st.header("Configuration" if lang == "English" else "配置面板")
     HANDLE = persistent_handle_input(T["handle"])
-    bulk_text = st.text_input(
-        T["manual"], value="", placeholder="",
-        help=T["manual_help"],
-    )
     show_official = st.checkbox(T["official_toggle"], value=True)
     show_unrated = st.checkbox(T["unrated_toggle"], value=True)
-    try:
-        bulk_excluded = parse_unrated_vp_ids(bulk_text)
-        bulk_valid = True
-    except ValueError as exc:
-        st.error(str(exc))
-        bulk_excluded = frozenset()
-        bulk_valid = False
-    run_clicked = st.button(T["run"], type="primary", disabled=not bulk_valid)
+    run_clicked = st.button(T["run"], type="primary")
     clear_clicked = st.button(T["clear"], disabled=not HANDLE)
 
 
@@ -272,21 +250,13 @@ if raw["warnings"]:
 vp_events = [event for event in raw["events"] if event["type"] == "VP"]
 st.subheader(T["vp_section"])
 st.caption(T["vp_help"])
-if bulk_excluded:
-    st.caption(T["bulk_notice"].format(
-        ids=", ".join(str(cid) for cid in sorted(bulk_excluded))
-    ))
-
 handle_key = HANDLE.strip().casefold()
 override_store = st.session_state.setdefault("unrated_vp_sessions", {})
 existing = override_store.get(handle_key, set())
 event_by_key = {event["key"]: event for event in vp_events}
 selected_keys = set(existing)
 if vp_events:
-    preview_exclusions = frozenset(
-        existing | {event["key"] for event in vp_events
-                    if event["cid"] in bulk_excluded}
-    )
+    preview_exclusions = frozenset(existing)
     preview_history, _ = simulate(
         raw["events"], raw["changes"], preview_exclusions
     )
@@ -324,12 +294,8 @@ if vp_events:
 else:
     st.info(T["no_vps"])
 
-# A contest-ID bulk exclusion always applies to all of its VP sessions.
-excluded_keys = frozenset(
-    selected_keys | {
-        event["key"] for event in vp_events if event["cid"] in bulk_excluded
-    }
-)
+# Only the explicit per-session checkboxes control Rated eligibility.
+excluded_keys = frozenset(selected_keys)
 with_vp, missing_with = simulate(raw["events"], raw["changes"], excluded_keys)
 baseline, missing_real = simulate(
     raw["events"], raw["changes"], excluded_keys, include_vp=False
