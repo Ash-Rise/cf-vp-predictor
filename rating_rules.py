@@ -4,6 +4,7 @@
 # The *internal* rating starts at 1400; display starts at 0.
 NEWCOMER_BONUSES = (500, 350, 250, 150, 100, 50)
 INTERNAL_START = 1400
+DEFAULT_INITIAL_RATING = 100
 
 
 def visible_rating(internal_rating, rated_contests, newcomer_mode=False):
