@@ -1,12 +1,37 @@
 """Pure rating-path simulation and inspectable five-proxy explanations."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from rating_rules import (
     display_simulation_rating,
     simulation_start_rating,
     use_new_account_policy,
 )
+
+
+def build_official_events(rating_history, contest_starts):
+    """Use contest START times for model order, not later Rating update timestamps."""
+    events = []
+    official_curve = []
+    missing_start = 0
+    for item in rating_history:
+        cid = item["contestId"]
+        updated = item["ratingUpdateTimeSeconds"]
+        started = contest_starts.get(cid)
+        if not started:
+            started = updated
+            missing_start += 1
+        events.append({
+            "key": f"REAL:{cid}:{updated}", "cid": cid,
+            "ts": started, "type": "REAL", "rank": item["rank"],
+            "name": item["contestName"],
+        })
+        official_curve.append({
+            "date": datetime.fromtimestamp(updated, timezone.utc),
+            "rating": item["newRating"], "name": item["contestName"],
+            "rank": item["rank"],
+        })
+    return events, official_curve, missing_start
 
 
 def estimate_delta(internal_rating, rank, rating_changes):
@@ -69,7 +94,7 @@ def simulate(events, changes_by_cid, excluded_vp_keys=frozenset(), *, include_vp
     if events:
         history.append({
             "key": "INITIAL", "cid": None,
-            "date": datetime.fromtimestamp(events[0]["ts"] - 86400),
+            "date": datetime.fromtimestamp(events[0]["ts"] - 86400, timezone.utc),
             "rating": 0, "type": "INIT", "name": "Start",
             "rank": 0, "delta": 0, "model_delta": 0, "proxies": [],
         })
@@ -94,7 +119,7 @@ def simulate(events, changes_by_cid, excluded_vp_keys=frozenset(), *, include_vp
         visible = display_simulation_rating(internal, counted, modern)
         history.append({
             "key": event["key"], "cid": event["cid"],
-            "date": datetime.fromtimestamp(event["ts"]),
+            "date": datetime.fromtimestamp(event["ts"], timezone.utc),
             "type": event["type"], "name": event["name"],
             "rank": event["rank"], "rating": visible,
             "delta": visible - old_display,
