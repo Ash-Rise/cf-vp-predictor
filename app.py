@@ -36,6 +36,9 @@ TEXT = {
         "note": "VP contribution compares two paths computed by the same approximation "
                 "(with and without VP). It is not the official value of these VPs.",
         "no_data": "Enter a valid Codeforces Handle and click Analyze.",
+        "incomplete": "Historical data is incomplete. Final simulated Rating and VP contribution are unavailable; the chart shows only the reliable prefix.",
+        "missing_rounds": "Rating changes are missing from: {names}",
+        "retry_failed": "Retry missing Rating data",
         "date": "Date (UTC)", "contest": "Contest", "rank": "Estimated rank",
         "excluded": "Unrated", "solved": "AC", "score": "Score",
     },
@@ -58,6 +61,9 @@ TEXT = {
         "note": "VP 模拟贡献 = 含 VP 模拟结果 − 不含 VP 模拟结果，两条路线使用相同的近邻算法。"
                 "该指标不是 VP 在官方规则下的真实收益。",
         "no_data": "输入 Codeforces Handle，再点击开始分析。",
+        "incomplete": "历史数据不完整：不展示最终模拟 Rating 或 VP 贡献。曲线只绘制缺失数据之前的有效部分。",
+        "missing_rounds": "以下比赛缺少 Rating 变化数据：{names}",
+        "retry_failed": "重试缺失的 Rating 数据",
         "date": "日期（UTC）", "contest": "比赛", "rank": "估计排名",
         "excluded": "Unrated", "solved": "AC", "score": "得分",
     },
@@ -86,6 +92,7 @@ def load_analysis(handle):
     status = st.empty()
     progress = st.progress(0)
     warnings = []
+    blocking_issues = []
 
     status.info("Fetching rated history and recent submissions...")
     real_data = get_json("user.rating", {"handle": handle}) or []
@@ -130,7 +137,9 @@ def load_analysis(handle):
             for start, items in sessions:
                 detail = reconstruct_vp_result(items, start, standings)
                 if detail is None:
-                    warnings.append(f"VP contest {cid}: unsupported scoring format")
+                    warning = f"VP contest {cid}: unsupported scoring format"
+                    warnings.append(warning)
+                    blocking_issues.append(warning)
                     continue
                 events.append({
                     "key": f"VP:{cid}:{start}",
@@ -139,7 +148,9 @@ def load_analysis(handle):
                     "vp_details": detail,
                 })
         except (CFAPIError, KeyError, TypeError, ValueError) as exc:
-            warnings.append(f"VP contest {cid}: {exc}")
+            warning = f"VP contest {cid}: {exc}"
+            warnings.append(warning)
+            blocking_issues.append(warning)
         progress.progress(14 + int(37 * n / max(total, 1)))
 
     events.sort(key=lambda event: (event["ts"], event["key"]))
@@ -166,6 +177,7 @@ def load_analysis(handle):
         "changes": changes_by_cid,
         "real_history": real_history,
         "warnings": warnings,
+        "blocking_issues": blocking_issues,
     }
 
 
@@ -299,23 +311,40 @@ with_vp, missing_with = simulate(raw["events"], raw["changes"], excluded_keys)
 baseline, missing_real = simulate(
     raw["events"], raw["changes"], excluded_keys, include_vp=False
 )
-if missing_with or missing_real:
-    st.warning(
-        f"{len(set(missing_with + missing_real))} contest sessions were missing "
-        "Rating-change data. Displayed estimates may be incomplete."
-    )
+missing_keys = set(missing_with + missing_real)
+incomplete = bool(missing_keys or raw.get("blocking_issues"))
+if incomplete:
+    st.error(T["incomplete"])
+    if missing_keys:
+        failed = [e for e in raw["events"] if e["key"] in missing_keys]
+        st.caption(T["missing_rounds"].format(
+            names=", ".join(f"{e['name']} (#{e['cid']})" for e in failed)
+        ))
+        if st.button(T["retry_failed"]):
+            failures = []
+            for cid in sorted({e["cid"] for e in failed}):
+                try:
+                    raw["changes"][cid] = get_json(
+                        "contest.ratingChanges", {"contestId": cid}, force=True
+                    )
+                except CFAPIError as exc:
+                    failures.append(str(exc))
+            if failures:
+                st.error("; ".join(failures))
+            else:
+                st.rerun()
 
 last_rating = with_vp[-1]["rating"] if with_vp else 0
 baseline_rating = baseline[-1]["rating"] if baseline else 0
 official_rating = (
     raw["real_history"][-1]["rating"] if raw["real_history"] else 0
 )
-contribution = modeled_vp_contribution(with_vp, baseline)
+contribution = modeled_vp_contribution(with_vp, baseline) if not incomplete else None
 a, b, c, d = st.columns(4)
-a.metric(T["metric_pred"], last_rating)
+a.metric(T["metric_pred"], "—" if incomplete else last_rating)
 b.metric(T["metric_official"], official_rating)
-c.metric(T["metric_contribution"], f"{contribution:+d}")
-d.metric(T["metric_error"], f"{baseline_rating - official_rating:+d}")
+c.metric(T["metric_contribution"], "—" if incomplete else f"{contribution:+d}")
+d.metric(T["metric_error"], "—" if incomplete else f"{baseline_rating - official_rating:+d}")
 st.caption(T["note"])
 render_chart(
     with_vp, baseline, raw["real_history"],
