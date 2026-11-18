@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from cf_api import CFAPIError, clear_personal_cache, get_json, get_user_submissions
+from chart_controls import PLOTLY_CONFIG, lock_rating_chart
 from persistent_handle import persistent_handle_input
 from predictor_core import build_official_events, modeled_vp_contribution, simulate
 from rating_rules import parse_unrated_vp_ids
@@ -42,6 +43,7 @@ TEXT = {
         "no_data": "Enter a valid Codeforces Handle and click Analyze.",
         "date": "Date (UTC)", "contest": "Contest", "rank": "Estimated rank",
         "excluded": "Unrated", "solved": "AC", "score": "Score",
+        "bulk_notice": "Excluded by contest ID: {ids}. These VP sessions count as Unrated even if their row checkbox is unchecked. Remove IDs from the sidebar to include them again.",
     },
     "中文": {
         "title": "Codeforces VP Rating 模拟器",
@@ -68,6 +70,7 @@ TEXT = {
         "no_data": "输入 Codeforces Handle，再点击开始分析。",
         "date": "日期（UTC）", "contest": "比赛", "rank": "估计排名",
         "excluded": "Unrated", "solved": "AC", "score": "得分",
+        "bulk_notice": "侧边栏已批量排除比赛 ID：{ids}。即使未勾选表格里的 Unrated，对应 VP 也不计分；如需恢复，请从侧边栏删除相应 ID。",
     },
 }
 
@@ -237,7 +240,7 @@ def render_chart(with_vp, baseline, real_history, *, include_official, include_u
         legend=dict(orientation="h", y=1.12, x=0),
         height=540, hovermode="closest",
     )
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(lock_rating_chart(fig), width="stretch", config=PLOTLY_CONFIG)
 
 
 if clear_clicked:
@@ -269,6 +272,10 @@ if raw["warnings"]:
 vp_events = [event for event in raw["events"] if event["type"] == "VP"]
 st.subheader(T["vp_section"])
 st.caption(T["vp_help"])
+if bulk_excluded:
+    st.caption(T["bulk_notice"].format(
+        ids=", ".join(str(cid) for cid in sorted(bulk_excluded))
+    ))
 
 handle_key = HANDLE.strip().casefold()
 override_store = st.session_state.setdefault("unrated_vp_sessions", {})
@@ -294,7 +301,6 @@ if vp_events:
             T["date"]: _date(event["ts"]),
             T["rank"]: event["rank"],
             "Est. Δ": preview_by_key.get(event["key"], {}).get("model_delta"),
-            "Bulk ID excluded": event["cid"] in bulk_excluded,
             T["solved"]: detail["solved"],
             T["score"]: detail["score"],
             "Link": f"https://codeforces.com/contest/{event['cid']}",
@@ -307,7 +313,7 @@ if vp_events:
             T["excluded"]: st.column_config.CheckboxColumn(T["excluded"]),
             "Link": st.column_config.LinkColumn("Codeforces", display_text="Open"),
         },
-        disabled=[T["contest"], T["date"], T["rank"], "Est. Δ", "Bulk ID excluded", T["solved"], T["score"], "Link"],
+        disabled=[T["contest"], T["date"], T["rank"], "Est. Δ", T["solved"], T["score"], "Link"],
         key=f"vp_editor_{handle_key}",
     )
     selected_keys = {
