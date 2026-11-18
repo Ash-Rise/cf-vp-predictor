@@ -1,663 +1,401 @@
+"""Codeforces VP Rating Simulator — historical counterfactual, not an official score."""
+
+from datetime import datetime, timezone
+
+import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
-import requests
-import time
-import json
-import os
-import random
-from datetime import datetime
-import plotly.graph_objects as go 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import gc 
-import threading
-import shutil
-from vp_utils import group_vp_sessions, estimate_vp_rank
+
+from cf_api import CFAPIError, clear_personal_cache, get_json, get_user_submissions
 from persistent_handle import persistent_handle_input
-from rating_rules import (
-    parse_unrated_vp_ids,
-    use_new_account_policy,
-    simulation_start_rating,
-    display_simulation_rating,
-)
+from predictor_core import modeled_vp_contribution, simulate
+from rating_rules import parse_unrated_vp_ids
+from vp_utils import group_vp_sessions, reconstruct_vp_result
 
-api_lock = threading.Semaphore(2)
-file_lock = threading.Lock()
 
-st.set_page_config(page_title="CF Rating Predictor", layout="wide")
-
-TRANSLATIONS = {
-    "en": {
-        "title": "Codeforces Rating Simulator",
-        "subtitle": "Visualize your potential rating trajectory by integrating Virtual Participation (VP) history.",
-        "sidebar_header": "Configuration",
-        "input_handle": "CF Handle",
-        "manual_unrated": "Unrated VP contest IDs (multiple allowed)",
-        "manual_unrated_help": "Enter any number of contest IDs, separated by commas (e.g. 1084, 1200, 1350). Each specified VP contest receives Delta 0. Public APIs do not expose universal historical eligibility cutoffs.",
-        "bad_unrated": "Invalid unrated VP contest IDs: {error}",
-        "unrated_notice": "VP Rated eligibility cannot always be verified from public data. Only VP contest IDs you explicitly exclude are treated as Unrated; other VP deltas are estimates.",
-
-        "note": "**Note:** When analyzing a specific Handle for the first time, the system needs to download its historical data. This may take a few minutes. Be patient pls.",
-        "checkbox_show_real": "Show Official Rating Comparison",
-        "checkbox_help": "Overlays your actual official rating curve (dashed blue line) for comparison.",
-        "checkbox_unrated": "Show Unrated Contests",
-        "btn_clear_cache": "Refresh Personal Data",
-        "help_btn_refresh": "Deletes local data for the current handle.\nFixes issues where recent VP records are not updating.\n\nNote: Re-downloading data will take time. Use with caution.",
-        "msg_refresh_success": "Memory cleared. Deleted {count} local cache files for **{handle}**.",
-        "msg_refresh_none": "Memory cleared. No local cache files found for **{handle}**.",
-        "msg_cache_cleared": "Cache cleared successfully.", 
-        "btn_start": "Start Analysis",
-        "msg_init": "Initializing analysis engine...",
-        "warn_no_data": "No data found. The Handle might be invalid or has no contest history.",
-        "warn_no_vp": "No Virtual Participation records found. Please check if the user has participated virtually.",
-        "metric_pred": "Predicted Rating (w/ VP)",
-        "metric_real": "Official Rating",
-        "metric_gap": "Gap (VP Effect)",
-        "chart_title": "Rating Trajectory",
-        "legend_sim": "Simulated Path (Real + VP)",
-        "legend_real": "Official Rating Curve",
-        "tooltip_real": "REAL (Official)",
-        "tooltip_vp": "VP (Virtual)",
-        "tooltip_init": "Initial",
-        "tooltip_rank": "Rank",
-        "tooltip_rating": "Rating",
-        "tooltip_date": "Date"
+st.set_page_config(page_title="CF VP Rating Simulator", layout="wide")
+TEXT = {
+    "English": {
+        "title": "Codeforces VP Rating Simulator",
+        "subtitle": "Explore an estimated rating path with your Virtual Participations (VPs). "
+                    "These values are model estimates, not official Codeforces ratings.",
+        "handle": "Codeforces Handle", "run": "Analyze / Refresh",
+        "clear": "Refresh personal API cache",
+        "manual": "Unrated VP contest IDs (multiple; comma-separated)",
+        "manual_help": "Optional bulk exclusion: enter 1084, 1200, 1350. "
+                       "Use the VP table below to exclude individual sessions.",
+        "official_toggle": "Compare with official rating",
+        "unrated_toggle": "Show Unrated VPs on chart",
+        "vp_section": "Virtual participation manager",
+        "vp_help": "Tick Unrated for any VP session. The calculation updates without downloading data again. "
+                   "For repeated VPs of one contest, each session has its own checkbox. "
+                   "The optional ID field excludes all sessions of the specified contest.",
+        "details": "Individual VP prediction details",
+        "no_vps": "No supported virtual participation was found.",
+        "metric_pred": "Simulated rating (with VP)",
+        "metric_official": "Official rating",
+        "metric_contribution": "VP modeled contribution",
+        "metric_error": "Model vs. official (reference only)",
+        "warning": "Incomplete historical data; some contests could not be simulated:",
+        "note": "VP contribution compares two paths computed by the same approximation "
+                "(with and without VP). It is not the official value of these VPs.",
+        "no_data": "Enter a valid Codeforces Handle and click Analyze.",
+        "date": "Date (UTC)", "contest": "Contest", "rank": "Estimated rank",
+        "excluded": "Unrated", "solved": "AC", "score": "Score",
     },
-    "zh": {
-        "title": "Codeforces Rating 模拟器",
-        "subtitle": "通过整合虚拟参赛 (VP) 记录，可视化您的潜在 Rating 走势。",
-        "sidebar_header": "配置面板",
-        "input_handle": "输入 CF Handle",
-        "manual_unrated": "Unrated VP 比赛 ID（支持多场，逗号分隔）",
-        "manual_unrated_help": "支持一次指定多场，例如 1084, 1200, 1350（中英文逗号均可）。这些比赛的所有 VP Delta 均为 0。公开 API 无法对全部历史比赛准确判断 Rated 资格。",
-        "bad_unrated": "无效的 VP 比赛 ID：{error}",
-        "unrated_notice": "公开 API 不一定能确定某次 VP 是否具备 Rated 资格。仅对你手动指定的 Unrated VP 赋予 Delta 0，其余 VP 仍是估计结果。",
-
-        "note": "**提示：** 每个 Handle 首次进行分析时，都需要下载该用户的历史比赛数据，耗时可能较长（几分钟），请耐心等待。",
-        "checkbox_show_real": "显示官方 Rating 对比",
-        "checkbox_help": "勾选后，将在图中叠加显示你实际的官方 CF Rating 曲线（蓝色虚线）以作对比。",
-        "checkbox_unrated": "显示 Unrated 比赛",
-        "btn_clear_cache": "刷新个人数据",
-        "help_btn_refresh": "按下后将删除当前 Handle 的本地数据。\n可解决近期 VP 后数据未更新的问题。\n\n注意：再次查询需重新等待较长时间下载数据，请谨慎使用。",
-        "msg_refresh_success": "内存已清理。已删除用户 **{handle}** 的 {count} 个本地缓存文件。",
-        "msg_refresh_none": "内存已清理。未找到用户 **{handle}** 的本地缓存。",
-        "msg_cache_cleared": "缓存已清除。",
-        "btn_start": "开始分析",
-        "msg_init": "正在初始化分析引擎...",
-        "warn_no_data": "未找到数据。该 Handle 可能无效或没有任何参赛记录。",
-        "warn_no_vp": "未检测到虚拟参赛 (VP) 记录。请确认该用户是否有过 VP。",
-        "metric_pred": "当前预测分 (含VP)",
-        "metric_real": "官方实际分",
-        "metric_gap": "VP 带来的差距",
-        "chart_title": "Rating 走势图",
-        "legend_sim": "模拟走势 (实战 + VP)",
-        "legend_real": "官方实际曲线",
-        "tooltip_real": "实战 (Official)",
-        "tooltip_vp": "虚拟参赛 (VP)",
-        "tooltip_init": "初始分",
-        "tooltip_rank": "排名",
-        "tooltip_rating": "分数",
-        "tooltip_date": "日期"
-    }
+    "中文": {
+        "title": "Codeforces VP Rating 模拟器",
+        "subtitle": "将虚拟参赛（VP）纳入历史时间线，估算 Rating 走势。结果仅供参考，不等同于官方 Rating。",
+        "handle": "Codeforces Handle", "run": "开始分析 / 刷新数据",
+        "clear": "刷新个人 API 缓存",
+        "manual": "Unrated VP 比赛 ID（支持多个，逗号分隔）",
+        "manual_help": "可批量输入 1084, 1200, 1350。也可以在下面的 VP 表格中逐场勾选，"
+                       "同一比赛的多次 VP 可分别指定。",
+        "official_toggle": "对比官方 Rating",
+        "unrated_toggle": "在图表显示 Unrated VP",
+        "vp_section": "可交互的 VP 管理",
+        "vp_help": "勾选 Unrated 后直接重新模拟，无需重新下载数据。同一比赛多次 VP 分别显示。"
+                   "上方输入的比赛 ID 会排除对应比赛的全部 VP。",
+        "details": "每场比赛的预测详情",
+        "no_vps": "没有找到支持的 VP 记录。",
+        "metric_pred": "模拟 Rating（含 VP）",
+        "metric_official": "官方实际 Rating",
+        "metric_contribution": "VP 模拟贡献",
+        "metric_error": "模拟与官方差距（仅参考）",
+        "warning": "部分历史数据获取失败，以下比赛未能完整模拟：",
+        "note": "VP 模拟贡献 = 含 VP 模拟结果 − 不含 VP 模拟结果，两条路线使用相同的近邻算法。"
+                "该指标不是 VP 在官方规则下的真实收益。",
+        "no_data": "输入 Codeforces Handle，再点击开始分析。",
+        "date": "日期（UTC）", "contest": "比赛", "rank": "估计排名",
+        "excluded": "Unrated", "solved": "AC", "score": "得分",
+    },
 }
 
-lang_option = st.sidebar.selectbox("Language / 语言", ["English", "中文"])
-LANG = "en" if lang_option == "English" else "zh"
-T = TRANSLATIONS[LANG]
-
+lang = st.sidebar.selectbox("Language / 语言", ["English", "中文"])
+T = TEXT[lang]
 st.title(T["title"])
-st.markdown(T["subtitle"])
-
-st.sidebar.header(T["sidebar_header"])
+st.caption(T["subtitle"])
 
 with st.sidebar:
-    HANDLE = persistent_handle_input(T["input_handle"])
-UNRATED_IDS_TEXT = st.sidebar.text_input(
-    T["manual_unrated"], value="", placeholder="1084, 1200, 1350",
-    help=T["manual_unrated_help"]
-)
-try:
-    MANUAL_UNRATED_IDS = parse_unrated_vp_ids(UNRATED_IDS_TEXT)
-    UNRATED_IDS_VALID = True
-except ValueError as exc:
-    st.sidebar.error(T["bad_unrated"].format(error=exc))
-    MANUAL_UNRATED_IDS = frozenset()
-    UNRATED_IDS_VALID = False
-
-st.sidebar.info(T["note"])
-
-SHOW_REAL_CURVE = st.sidebar.checkbox(
-    T["checkbox_show_real"], 
-    value=False, 
-    help=T["checkbox_help"]
-)
-
-SHOW_UNRATED = st.sidebar.checkbox(
-    T["checkbox_unrated"], 
-    value=False
-)
-
-CACHE_DIR = "data"  
-if not os.path.exists(CACHE_DIR):
-    os.makedirs(CACHE_DIR)
-
-if st.sidebar.button(T["btn_clear_cache"], help=T["help_btn_refresh"]):
-    st.cache_data.clear()
-    
-    files_deleted = 0
-    if os.path.exists(CACHE_DIR):
-        target_handle_lower = HANDLE.lower()
-        for fname in os.listdir(CACHE_DIR):
-            fname_lower = fname.lower()
-            patterns = [
-                f"handle_{target_handle_lower}_",
-                f"handle_{target_handle_lower}.json",
-                f"handles_{target_handle_lower}_",
-                f"handles_{target_handle_lower}.json"
-            ]
-            
-            if any(p in fname_lower for p in patterns):
-                try:
-                    file_path = os.path.join(CACHE_DIR, fname)
-                    os.remove(file_path)
-                    files_deleted += 1
-                except Exception as e:
-                    print(f"Error deleting {fname}: {e}")
-
-    if files_deleted > 0:
-        st.success(T["msg_refresh_success"].format(count=files_deleted, handle=HANDLE))
-    else:
-        st.warning(T["msg_refresh_none"].format(handle=HANDLE))
-
-def handle_430_cooldown(seconds=180):
-    cooldown_placeholder = st.sidebar.empty() 
-    for remaining in range(seconds, 0, -1):
-        mins, secs = divmod(remaining, 60)
-        cooldown_placeholder.error(
-            f"**Codeforces Rate Limit**\n\n"
-            f"The server is temporarily throttled due to high traffic.\n\n"
-            f"**Cooling down: {mins:02d}:{secs:02d} remaining**\n\n"
-            "Please do not refresh the page. The request will automatically resume after the countdown."
-        )
-        time.sleep(1)
-    cooldown_placeholder.empty() 
-
-def get_json(url, params=None, use_cache=True):
-    params_str = ""
-    if params:
-        sorted_keys = sorted(params.keys())
-        params_str = "_" + "_".join([f"{k}_{params[k]}" for k in sorted_keys])
-    
-    method_name = url.split('/')[-1]
-    filename = f"{method_name}{params_str}.json".replace(":", "").replace("/", "")
-    filepath = os.path.join(CACHE_DIR, filename)
-
-    def parse_cache_data(data, fname):
-        if "ratingChanges" in fname and isinstance(data, list) and len(data) > 0 and isinstance(data[0], list):
-            return [{"rank": r[0], "oldRating": r[1], "newRating": r[2]} for r in data]
-        if "contest.standings" in fname and isinstance(data, list):
-            return data
-        return data
-
-    if use_cache and os.path.exists(filepath):
-        try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                return parse_cache_data(json.load(f), filename)
-        except Exception:
-            pass 
-
-    with api_lock:
-        if use_cache and os.path.exists(filepath):
-            try:
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    return parse_cache_data(json.load(f), filename)
-            except Exception: pass
-
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                if attempt > 0:
-                    time.sleep(1.1) 
-                else:
-                    time.sleep(random.uniform(0.2, 0.4))
-                
-                resp = requests.get(url, params=params, timeout=15)
-
-                if resp.status_code == 430:
-                    handle_430_cooldown(200) 
-                    continue
-                if resp.status_code == 429:
-                    time.sleep(2) 
-                    continue
-                
-                resp.raise_for_status()
-                data = resp.json()
-                if data['status'] != 'OK': 
-                    raise ValueError(f"API Error: {data.get('comment')}")
-                
-                result = data['result']
-                save_data = result
-
-                if "ratingChanges" in url:
-                    save_data = [[row['rank'], row['oldRating'], row['newRating']] for row in result]
-                elif "contest.standings" in url:
-                    rows = result.get('rows', []) if isinstance(result, dict) else []
-                    save_data = [[row['rank'], row['party']['startTimeSeconds'], 1 if row['party']['participantType'] == 'VIRTUAL' else 0] for row in rows]
-                
-                if use_cache:
-                    if not os.path.exists(CACHE_DIR): 
-                        os.makedirs(CACHE_DIR)
-                    with file_lock: 
-                        with open(filepath, 'w', encoding='utf-8') as f:
-                            json.dump(save_data, f, separators=(',', ':'))
-                
-                if "ratingChanges" in url:
-                    return [{"rank": r[0], "oldRating": r[1], "newRating": r[2]} for r in save_data]
-                return save_data if "contest.standings" in url else result
-
-            except Exception as e:
-                print(f"Fetch error {url} (Attempt {attempt+1}/{max_retries}): {e}")
-                if attempt == max_retries - 1: return None
-
-    return None
-
-def get_official_standings(cid):
-    """Fetch public official standings, reusing the existing API concurrency limit."""
-    url = "https://codeforces.com/api/contest.standings"
-    for attempt in range(3):
-        try:
-            with api_lock:
-                time.sleep(0.35 if attempt == 0 else 1.5 * attempt)
-                resp = requests.get(url, params={"contestId": cid}, timeout=25)
-            if resp.status_code in (429, 430):
-                time.sleep(2 * (attempt + 1))
-                continue
-            resp.raise_for_status()
-            payload = resp.json()
-            if payload.get("status") == "OK":
-                return payload["result"]
-            print(f"Contest {cid}: standings API error: {payload.get('comment')}")
-            break
-        except Exception as exc:
-            print(f"Contest {cid}: standings request failed: {exc}")
-    return None
+    st.header("Configuration" if lang == "English" else "配置面板")
+    HANDLE = persistent_handle_input(T["handle"])
+    bulk_text = st.text_input(
+        T["manual"], value="", placeholder="1084, 1200, 1350",
+        help=T["manual_help"],
+    )
+    show_official = st.checkbox(T["official_toggle"], value=True)
+    show_unrated = st.checkbox(T["unrated_toggle"], value=True)
+    try:
+        bulk_excluded = parse_unrated_vp_ids(bulk_text)
+        bulk_valid = True
+    except ValueError as exc:
+        st.error(str(exc))
+        bulk_excluded = frozenset()
+        bulk_valid = False
+    run_clicked = st.button(T["run"], type="primary", disabled=not bulk_valid)
+    clear_clicked = st.button(T["clear"], disabled=not HANDLE)
 
 
-def fetch_vp_rank(cid, sub_ts, session_subs):
-    contest_name = f"Contest {cid}"
-    standings = get_official_standings(cid)
-    if not standings:
-        return cid, 0, contest_name, sub_ts
-    contest_name = standings["contest"].get("name", contest_name)
-    rank = estimate_vp_rank(session_subs, sub_ts, standings)
-    if rank is None:
-        print(f"Contest {cid}: unsupported VP scoring mode {standings['contest'].get('type')}")
-        return cid, 0, contest_name, sub_ts
-    return cid, rank, contest_name, sub_ts
+def _date(ts):
+    return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 
-def fetch_rating_changes_to_disk(cid):
-    get_json("https://codeforces.com/api/contest.ratingChanges", {"contestId": cid}, use_cache=True)
-    return cid
+def load_analysis(handle):
+    """Load network-derived data once; keep it independent of UI VP exclusions."""
+    status = st.empty()
+    progress = st.progress(0)
+    warnings = []
 
-def process_batches(task_list, worker_func, max_workers=10, update_callback=None):
-    results = []
-    total = len(task_list)
-    chunks = [task_list[i:i + max_workers] for i in range(0, total, max_workers)]
-    
-    for chunk in chunks:
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = []
-            for item in chunk:
-                if isinstance(item, tuple):
-                    future = executor.submit(worker_func, *item)
-                else:
-                    future = executor.submit(worker_func, item)
-                futures.append(future)
-            
-            for future in as_completed(futures):
-                try:
-                    res = future.result()
-                    results.append(res)
-                except Exception as e:
-                    print(f"Batch execution error: {e}")
-                if update_callback:
-                    update_callback()
-    return results
+    status.info("Fetching rated history and recent submissions...")
+    real_data = get_json("user.rating", {"handle": handle}) or []
+    submissions = get_user_submissions(handle)
+    progress.progress(8)
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def get_processed_data(handle, unrated_vp_ids):
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    status_text.text("Fetching official contest history...")
-    real_data = get_json("https://codeforces.com/api/user.rating", {"handle": handle}, use_cache=False)
-    
+    try:
+        contests = get_json("contest.list", {"gym": "false"}) or []
+        start_map = {
+            c["id"]: c.get("startTimeSeconds")
+            for c in contests if c.get("startTimeSeconds")
+        }
+    except CFAPIError as exc:
+        start_map = {}
+        warnings.append(f"contest.list unavailable: {exc}")
+    progress.progress(14)
+
     real_history = []
-    if real_data:
-        for row in real_data:
-            real_history.append({
-                "date": datetime.fromtimestamp(row['ratingUpdateTimeSeconds']),
-                "rating": row['newRating'],
-                "name": row['contestName'],
-                "rank": row['rank']
-            })
-
     events = []
-    if real_data:
-        for row in real_data:
-            events.append({
-                "cid": row['contestId'], "rank": row['rank'],
-                "ts": row['ratingUpdateTimeSeconds'], "type": "REAL",
-                "name": row['contestName']
-            })
+    missing_start = 0
+    for item in real_data:
+        cid = item["contestId"]
+        rating_updated = item["ratingUpdateTimeSeconds"]
+        contest_start = start_map.get(cid)
+        if not contest_start:
+            contest_start = rating_updated  # Explicit fallback, not the preferred order.
+            missing_start += 1
+        events.append({
+            "key": f"REAL:{cid}:{rating_updated}",
+            "cid": cid, "ts": contest_start, "type": "REAL",
+            "rank": item["rank"], "name": item["contestName"],
+        })
+        real_history.append({
+            "date": datetime.fromtimestamp(rating_updated, timezone.utc),
+            "rating": item["newRating"],
+            "name": item["contestName"], "rank": item["rank"],
+        })
+    if missing_start:
+        warnings.append(
+            f"{missing_start} official contests lack startTimeSeconds; "
+            "using their Rating update times as a fallback."
+        )
 
-    status_text.text("Scanning submission history for VPs...")
-    progress_bar.progress(5)
-    subs = get_json("https://codeforces.com/api/user.status", {"handle": handle}, use_cache=False)
-    
-    # Keep the fresh submission response and pass each VP run to its worker.
-    # Re-fetching user.status with use_cache=True could silently read stale data.
     vp_sessions = [
-        (cid, start, session_subs)
-        for cid, start, session_subs in group_vp_sessions(subs)
+        (cid, start, items)
+        for cid, start, items in group_vp_sessions(submissions)
         if cid < 100000
     ]
-    total_vp = len(vp_sessions)
+    by_contest = {}
+    for cid, start, items in vp_sessions:
+        by_contest.setdefault(cid, []).append((start, items))
 
-    if total_vp > 0:
-        status_text.text(f"Retrieving ranks for {total_vp} virtual contests...")
-        tasks = [(cid, start, session_subs) for cid, start, session_subs in vp_sessions]
-        progress_tracker = {"count": 0}
-
-        def vp_progress_cb():
-            progress_tracker["count"] += 1
-            completed = progress_tracker["count"]
-            prog = 5 + int((completed / total_vp) * 45)
-            progress_bar.progress(prog)
-            status_text.text(f"Analyzing VP: {completed}/{total_vp}")
-
-        vp_results = process_batches(tasks, fetch_vp_rank, max_workers=5, update_callback=vp_progress_cb)
-        for res in vp_results:
-            if not res:
-                continue
-            cid, rank, cname, ts = res
-            if rank > 0:
+    total = len(by_contest)
+    for n, (cid, sessions) in enumerate(by_contest.items(), 1):
+        status.info(f"Reconstructing VPs: contest {n}/{total}...")
+        try:
+            standings = get_json("contest.standings", {"contestId": cid})
+            if not standings:
+                raise CFAPIError("Empty standings")
+            name = standings["contest"].get("name", f"Contest {cid}")
+            for start, items in sessions:
+                detail = reconstruct_vp_result(items, start, standings)
+                if detail is None:
+                    warnings.append(f"VP contest {cid}: unsupported scoring format")
+                    continue
                 events.append({
-                    "cid": cid, "rank": rank, "ts": ts, "type": "VP", "name": cname
+                    "key": f"VP:{cid}:{start}",
+                    "cid": cid, "ts": start, "type": "VP",
+                    "rank": detail["rank"], "name": name,
+                    "vp_details": detail,
                 })
+        except (CFAPIError, KeyError, TypeError, ValueError) as exc:
+            warnings.append(f"VP contest {cid}: {exc}")
+        progress.progress(14 + int(37 * n / max(total, 1)))
 
-    events.sort(key=lambda x: x['ts'])
-    
-    target_cids = sorted({e['cid'] for e in events if e['cid'] < 100000})
-    total_downloads = len(target_cids)
-    
-    if total_downloads > 0:
-        status_text.text(f"Syncing contest data to disk (Lazy Loading)...")
-        progress_tracker_dl = {"count": 0}
-        def dl_progress_cb():
-            progress_tracker_dl["count"] += 1
-            completed = progress_tracker_dl["count"]
-            prog = 50 + int((completed / total_downloads) * 45)
-            progress_bar.progress(prog)
-            status_text.text(f"Syncing Data: {completed}/{total_downloads}")
-            
-        process_batches(target_cids, fetch_rating_changes_to_disk, max_workers=1, update_callback=dl_progress_cb)
-
-    status_text.text("Calculating rating simulation...")
-    progress_bar.progress(98)
-    
-    # Automatic rules: modern first-time participants use hidden 1400.
-    # The displayed curve always begins at 0; only eligible rated events
-    # count toward the six beginner bonuses.
-    modern_policy = use_new_account_policy(events, unrated_vp_ids)
-    curr = simulation_start_rating(events, unrated_vp_ids)
-    rated_count = 0
-    sim_history = []
-
-    if events:
-        sim_history.append({
-            "date": datetime.fromtimestamp(events[0]['ts'] - 86400),
-            "rating": display_simulation_rating(curr, rated_count, modern_policy),
-            "type": "INIT", "name": "Start", "rank": 0, "delta": 0
-        })
-
-    for event in events:
-        cid = event['cid']
-        cname = event['name']
-        before_display = display_simulation_rating(curr, rated_count, modern_policy)
-
-        # user.rating contains only rated events, so REAL is always rated.
-        # VP eligibility cannot always be inferred from public API data.
-        if event['type'] == 'VP' and cid in unrated_vp_ids:
-            sim_history.append({
-                "date": datetime.fromtimestamp(event['ts']),
-                "rating": before_display, "type": "VP", "unrated": True,
-                "name": f"{cname} (Unrated)", "rank": event['rank'], "delta": 0
-            })
-            continue
-
-        changes = get_json("https://codeforces.com/api/contest.ratingChanges", {"contestId": cid}, use_cache=True)
-        
-        if not changes:
-            days_diff = (time.time() - event['ts']) / (24 * 3600)
-            
-            if days_diff < 10:
-                fname = f"ratingChanges_contestId_{cid}.json"
-                fpath = os.path.join(CACHE_DIR, fname)
-                
-                if os.path.exists(fpath):
-                    try:
-                        os.remove(fpath)
-                    except Exception: 
-                        pass
-                
-                time.sleep(0.2) 
-                changes = get_json("https://codeforces.com/api/contest.ratingChanges", {"contestId": cid}, use_cache=True)
-
-        if not changes: continue
-
-        # The highest-rated historical participant is not a reliable
-        # indicator of this contest's official eligibility cutoff.
-        candidates = [p for p in changes if abs(p['oldRating'] - curr) < 300]
-        if not candidates: candidates = changes
-
-        scored_candidates = []
-        for p in candidates:
-            cost = abs(p['oldRating'] - curr) * 0.8 + abs(p['rank'] - event['rank']) * 1.5
-            scored_candidates.append((cost, p))
-        
-        scored_candidates.sort(key=lambda x: x[0])
-        top_proxies = [x[1] for x in scored_candidates[:5]] 
-        
-        if not top_proxies: continue
-
-        raw_deltas = []
-        for p in top_proxies:
-            d = p['newRating'] - p['oldRating']
-            if event['rank'] < p['rank']: d += 1
-            elif event['rank'] > p['rank']: d -= 1
-            raw_deltas.append(d)
-        
-        final_delta = 0
-        if len(raw_deltas) >= 3:
-            raw_deltas.sort()
-            trimmed_deltas = raw_deltas[1:-1]
-            final_delta = sum(trimmed_deltas) / len(trimmed_deltas)
-        else:
-            final_delta = sum(raw_deltas) / len(raw_deltas)
-            
-        delta_int = int(round(final_delta))
-        
-        curr += delta_int
-        rated_count += 1
-        after_display = display_simulation_rating(curr, rated_count, modern_policy)
-        sim_history.append({
-            "date": datetime.fromtimestamp(event['ts']),
-            "rating": after_display, "type": event['type'], "name": cname,
-            "rank": event['rank'], "delta": after_display - before_display,
-            "unrated": False
-        })
-    
-    gc.collect()
-    progress_bar.empty()
-    status_text.empty()
-    return sim_history, real_history
-
-def plot_plotly(sim_history, real_history, show_real, local_t):
-    from datetime import timedelta
-    fig = go.Figure()
-
-    plot_dates = []
-    date_counter = {}
-
-    for h in sim_history:
-        date_key = h['date'].strftime('%Y-%m-%d')
-        if date_key in date_counter:
-            date_counter[date_key] += 1
-        else:
-            date_counter[date_key] = 0
-        
-        offset = timedelta(hours=6 * date_counter[date_key])
-        plot_dates.append(h['date'] + offset)
-
-    sim_ratings = [h['rating'] for h in sim_history]
-    sim_hover = []
-    for h in sim_history:
-        type_str = local_t["tooltip_real"] if h['type'] == 'REAL' else local_t["tooltip_vp"]
-        if h['type'] == 'INIT': type_str = local_t["tooltip_init"]
-        
-        sim_hover.append(
-            f"<b>{h['name']}</b><br>{type_str}<br>{local_t['tooltip_rank']}: {h['rank']}<br>"
-            f"{local_t['tooltip_rating']}: {h['rating']} ({h['delta']:+d})<br>{local_t['tooltip_date']}: {h['date'].strftime('%Y-%m-%d')}"
-        )
-
-    fig.add_trace(go.Scatter(
-        x=plot_dates, y=sim_ratings, mode='lines',
-        line=dict(color='gray', width=1.5), 
-        name=local_t["legend_sim"], hoverinfo='skip'
-    ))
-    
-    colors = ['#FF0000' if h['type'] == 'VP' else '#000000' for h in sim_history]
-    sizes = [12 if h['type'] == 'VP' else 8 for h in sim_history]
-    symbols = ['star' if h['type'] == 'VP' else 'circle' for h in sim_history]
-
-    fig.add_trace(go.Scatter(
-        x=plot_dates, y=sim_ratings, mode='markers',
-        marker=dict(color=colors, size=sizes, symbol=symbols, line=dict(width=1, color='white')),
-        text=sim_hover, hoverinfo='text', showlegend=False
-    ))
-
-    if show_real and real_history:
-        real_dates = [h['date'] for h in real_history]
-        real_vals = [h['rating'] for h in real_history]
-        real_hover = [f"<b>{h['name']}</b><br>{local_t['metric_real']}: {h['rating']}<br>{local_t['tooltip_rank']}: {h['rank']}" for h in real_history]
-        
-        fig.add_trace(go.Scatter(
-            x=real_dates, y=real_vals, mode='lines+markers',
-            line=dict(color='#1E90FF', width=2, dash='dash'),
-            marker=dict(size=6, color='#1E90FF'),
-            text=real_hover, hoverinfo='text',
-            name=local_t["legend_real"], opacity=0.7
-        ))
-
-    all_ratings = sim_ratings + ([h['rating'] for h in real_history] if show_real else [])
-    if all_ratings:
-        min_r, max_r = min(all_ratings), max(all_ratings)
-        y_lower = max(0, min_r - 200)
-        y_upper = max_r + 200
-        
-        color_bands = [
-            (0, 1199, '#CCCCCC'), (1200, 1399, '#77FF77'), (1400, 1599, '#77DDFF'),
-            (1600, 1899, '#AAAAFF'), (1900, 2099, '#FF88FF'), (2100, 2299, '#FFCC88'),
-            (2300, 2399, '#FFBB55'), (2400, 2999, '#FF7777'), (3000, 4000, '#AA0000')
-        ]
-        shapes = []
-        for low, high, color in color_bands:
-            if high < y_lower or low > y_upper: continue
-            shapes.append(dict(type="rect", xref="paper", yref="y", x0=0, y0=low, x1=1, y1=high, fillcolor=color, opacity=0.15, layer="below", line_width=0))
-
-        fig.update_layout(
-            title=f"{local_t['chart_title']} ({HANDLE})",
-            yaxis_title="Rating", yaxis=dict(range=[y_lower, y_upper]),
-            shapes=shapes, hovermode="closest", height=600,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-if st.button(T["btn_start"], type="primary", disabled=not UNRATED_IDS_VALID):
-    if not HANDLE:
-        st.warning(T["warn_no_data"])
-        st.stop()
-    if HANDLE == "ALL_HISTORY":
-        st.info("Downloading all contest data (ID 1 -> Last)...")
-        contests_data = get_json("https://codeforces.com/api/contest.list", {"gym": "false"}, use_cache=False)
-        if not contests_data:
-            st.error("Failed to fetch contest list")
-            st.stop()
-            
-        target_contests = [c['id'] for c in contests_data if c['phase'] == 'FINISHED' and c['id'] < 10000]
-        target_contests.sort()
-        total_c = len(target_contests)
-        st.write(f"Found {total_c} contests. Starting sequential download...")
-        
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        progress_tracker_all = {"count": 0}
-        def all_progress_cb():
-            progress_tracker_all["count"] += 1
-            completed = progress_tracker_all["count"]
-            if completed % 10 == 0 or completed == total_c: 
-                prog = int((completed / total_c) * 100)
-                progress_bar.progress(min(prog, 100))
-                status_text.text(f"Processing: {completed}/{total_c}")
-
-        process_batches(target_contests, fetch_rating_changes_to_disk, max_workers=5, update_callback=all_progress_cb)
-        progress_bar.progress(100)
-        st.success(f"Done. {total_c} contests cached.")
-
-    else:
-        with st.spinner(T["msg_init"]):
-            sim_data, real_data = get_processed_data(HANDLE, MANUAL_UNRATED_IDS)
-            st.session_state['sim_data'] = sim_data
-            st.session_state['real_data'] = real_data
-            st.session_state['analysis_config'] = (
-                HANDLE.casefold(), MANUAL_UNRATED_IDS
+    events.sort(key=lambda event: (event["ts"], event["key"]))
+    contest_ids = sorted({event["cid"] for event in events})
+    changes_by_cid = {}
+    for n, cid in enumerate(contest_ids, 1):
+        status.info(f"Loading historical Rating results: {n}/{len(contest_ids)}...")
+        try:
+            changes_by_cid[cid] = get_json(
+                "contest.ratingChanges", {"contestId": cid}
             )
+            if not changes_by_cid[cid]:
+                warnings.append(f"contest {cid}: official rating changes unavailable")
+        except CFAPIError as exc:
+            changes_by_cid[cid] = None
+            warnings.append(str(exc))
+        progress.progress(52 + int(48 * n / max(len(contest_ids), 1)))
 
-if (
-    'sim_data' in st.session_state
-    and HANDLE != "ALL_HISTORY"
-    and st.session_state.get('analysis_config') == (
-        HANDLE.casefold(), MANUAL_UNRATED_IDS
+    progress.empty()
+    status.empty()
+    return {
+        "handle": handle,
+        "events": events,
+        "changes": changes_by_cid,
+        "real_history": real_history,
+        "warnings": warnings,
+    }
+
+
+def render_chart(with_vp, baseline, real_history, *, include_official, include_unrated):
+    shown = (
+        with_vp if include_unrated
+        else [row for row in with_vp if not row.get("unrated", False)]
     )
-):
+    fig = go.Figure()
+    if baseline:
+        fig.add_trace(go.Scatter(
+            x=[h["date"] for h in baseline], y=[h["rating"] for h in baseline],
+            mode="lines", name="Simulated REAL only",
+            line=dict(color="#8894A7", dash="dash", width=2),
+            hovertemplate="%{y} Rating<extra>REAL-only model</extra>",
+        ))
+    if shown:
+        fig.add_trace(go.Scatter(
+            x=[h["date"] for h in shown], y=[h["rating"] for h in shown],
+            mode="lines", name="Simulated REAL + VP",
+            line=dict(color="#343434", width=2),
+            hoverinfo="skip",
+        ))
+        fig.add_trace(go.Scatter(
+            x=[h["date"] for h in shown],
+            y=[h["rating"] for h in shown], mode="markers",
+            marker=dict(
+                color=["#DC5757" if h["type"] == "VP" else "#333333" for h in shown],
+                symbol=["star" if h["type"] == "VP" else "circle" for h in shown],
+                size=[12 if h["type"] == "VP" else 7 for h in shown],
+            ),
+            text=[
+                f"{h['name']}<br>{h['type']} | Rank: {h['rank']}"
+                f"<br>Rating: {h['rating']} | Δ: {h['delta']:+d}"
+                for h in shown
+            ],
+            hovertemplate="%{text}<extra></extra>", showlegend=False,
+        ))
+    if include_official and real_history:
+        fig.add_trace(go.Scatter(
+            x=[h["date"] for h in real_history],
+            y=[h["rating"] for h in real_history],
+            mode="lines+markers", name="Official Rating",
+            line=dict(color="#4389e4", dash="dot", width=2),
+            marker=dict(size=6),
+        ))
+    fig.update_layout(
+        title=f"Rating trajectory ({HANDLE})",
+        yaxis_title="Rating", xaxis_title="Contest start / official update time (UTC)",
+        legend=dict(orientation="h", y=1.12, x=0),
+        height=540, hovermode="closest",
+    )
+    st.plotly_chart(fig, width="stretch")
 
-    sim_data = st.session_state['sim_data']
-    real_data = st.session_state['real_data']
-    
-    if not sim_data:
-        st.error(T["warn_no_data"])
+
+if clear_clicked:
+    clear_personal_cache(HANDLE.strip())
+    st.session_state.pop("analysis_data", None)
+    st.success("Personal API cache cleared. Click Analyze to reload.")
+
+if run_clicked:
+    clean_handle = HANDLE.strip()
+    if not clean_handle:
+        st.warning(T["no_data"])
     else:
-        vp_count = sum(1 for d in sim_data if d.get('type') == 'VP')
-        if vp_count == 0:
-            st.warning(T["warn_no_vp"])
+        try:
+            with st.spinner("Loading Codeforces history..."):
+                st.session_state["analysis_data"] = load_analysis(clean_handle)
+        except (CFAPIError, ValueError, KeyError) as exc:
+            st.error(f"Cannot load Codeforces history: {exc}")
 
-        last_sim_rating = sim_data[-1]['rating']
-        last_sim_delta = sim_data[-1]['delta']
-        last_real_rating = real_data[-1]['rating'] if real_data else 0
-        gap = last_sim_rating - last_real_rating
-        
-        col1, col2, col3 = st.columns(3)
-        col1.metric(T["metric_pred"], f"{last_sim_rating}", f"{last_sim_delta:+d}")
-        col2.metric(T["metric_real"], f"{last_real_rating}")
-        col3.metric(T["metric_gap"], f"{gap:+d}", delta_color="normal")
-        
-        st.divider()
-        if vp_count > 0:
-            st.caption(T["unrated_notice"])
+raw = st.session_state.get("analysis_data")
+if not raw or raw["handle"].casefold() != HANDLE.strip().casefold():
+    st.info(T["no_data"])
+    st.stop()
 
-        plot_sim_data = sim_data
-        if not SHOW_UNRATED:
-            plot_sim_data = [d for d in sim_data if not d.get('unrated', False)]
+if raw["warnings"]:
+    with st.expander(f"{T['warning']} ({len(raw['warnings'])})"):
+        for warning in raw["warnings"]:
+            st.write(warning)
 
-        plot_plotly(plot_sim_data, real_data, SHOW_REAL_CURVE, T)
+vp_events = [event for event in raw["events"] if event["type"] == "VP"]
+st.subheader(T["vp_section"])
+st.caption(T["vp_help"])
+
+handle_key = HANDLE.strip().casefold()
+override_store = st.session_state.setdefault("unrated_vp_sessions", {})
+existing = override_store.get(handle_key, set())
+event_by_key = {event["key"]: event for event in vp_events}
+selected_keys = set(existing)
+if vp_events:
+    editor_rows = []
+    for event in vp_events:
+        detail = event["vp_details"]
+        editor_rows.append({
+            "Session": event["key"],
+            T["excluded"]: event["key"] in existing or event["cid"] in bulk_excluded,
+            T["contest"]: event["name"],
+            T["date"]: _date(event["ts"]),
+            T["rank"]: event["rank"],
+            T["solved"]: detail["solved"],
+            T["score"]: detail["score"],
+            "Link": f"https://codeforces.com/contest/{event['cid']}",
+        })
+    table = pd.DataFrame(editor_rows)
+    edited = st.data_editor(
+        table, width="stretch", hide_index=True, num_rows="fixed",
+        column_config={
+            "Session": None,
+            T["excluded"]: st.column_config.CheckboxColumn(T["excluded"]),
+            "Link": st.column_config.LinkColumn("Codeforces", display_text="Open"),
+        },
+        disabled=[T["contest"], T["date"], T["rank"], T["solved"], T["score"], "Link"],
+        key=f"vp_editor_{handle_key}",
+    )
+    selected_keys = {
+        row["Session"] for _, row in edited.iterrows()
+        if bool(row[T["excluded"]])
+    }
+    override_store[handle_key] = selected_keys
+else:
+    st.info(T["no_vps"])
+
+# A contest-ID bulk exclusion always applies to all of its VP sessions.
+excluded_keys = frozenset(
+    selected_keys | {
+        event["key"] for event in vp_events if event["cid"] in bulk_excluded
+    }
+)
+with_vp, missing_with = simulate(raw["events"], raw["changes"], excluded_keys)
+baseline, missing_real = simulate(
+    raw["events"], raw["changes"], excluded_keys, include_vp=False
+)
+if missing_with or missing_real:
+    st.warning(
+        f"{len(set(missing_with + missing_real))} contest sessions were missing "
+        "Rating-change data. Displayed estimates may be incomplete."
+    )
+
+last_rating = with_vp[-1]["rating"] if with_vp else 0
+baseline_rating = baseline[-1]["rating"] if baseline else 0
+official_rating = (
+    raw["real_history"][-1]["rating"] if raw["real_history"] else 0
+)
+contribution = modeled_vp_contribution(with_vp, baseline)
+a, b, c, d = st.columns(4)
+a.metric(T["metric_pred"], last_rating)
+b.metric(T["metric_official"], official_rating)
+c.metric(T["metric_contribution"], f"{contribution:+d}")
+d.metric(T["metric_error"], f"{baseline_rating - official_rating:+d}")
+st.caption(T["note"])
+render_chart(
+    with_vp, baseline, raw["real_history"],
+    include_official=show_official, include_unrated=show_unrated,
+)
+
+st.subheader(T["details"])
+if vp_events:
+    choices = [e["key"] for e in vp_events]
+    key = st.selectbox(
+        "Select VP" if lang == "English" else "选择一场 VP",
+        choices, format_func=lambda ident: (
+            f"{event_by_key[ident]['name']} — {_date(event_by_key[ident]['ts'])}"
+        ),
+        key=f"vp_inspect_{handle_key}",
+    )
+    event = event_by_key[key]
+    item = next((x for x in with_vp if x["key"] == key), None)
+    stats = event["vp_details"]
+    st.markdown(
+        f"**[{event['name']}](https://codeforces.com/contest/{event['cid']})**"
+        f" · {_date(event['ts'])}"
+    )
+    first, second, third, fourth = st.columns(4)
+    first.metric(T["rank"], stats["rank"])
+    second.metric(T["solved"], stats["solved"])
+    third.metric(T["score"], stats["score"])
+    fourth.metric("Estimated model Δ", "Unrated" if item and item.get("unrated")
+                  else (f"{item['model_delta']:+d}" if item and not item.get("unavailable")
+                        else "Unavailable"))
+    if stats.get("penalty") is not None:
+        st.caption(f"ICPC penalty: {stats['penalty']} min")
+    with st.expander("Solved problems / 已通过题目", expanded=False):
+        if stats["problems"]:
+            st.dataframe(pd.DataFrame(stats["problems"]), hide_index=True,
+                         width="stretch")
+        else:
+            st.write("No accepted submissions.")
+    st.markdown("**Five nearest proxies / 五名参考选手**")
+    if item and item["proxies"]:
+        st.dataframe(pd.DataFrame(item["proxies"]), hide_index=True, width="stretch")
+        st.caption("Proxy rows come from the original contest. The model trims the largest "
+                   "and smallest adjusted Deltas before averaging (when at least 3 exist).")
+    else:
+        st.info("No proxy estimate (Unrated or unavailable historical rating data).")
