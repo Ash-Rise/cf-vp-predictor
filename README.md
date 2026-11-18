@@ -53,3 +53,13 @@ You can access the tool online at:
 * **Initial Rating**: Set your starting rating before the simulation begins.
 * **Data Caching**: Contest data is serialized and saved in the `data/` directory to enable near-instant loading during subsequent visits.
 * **Clear Cache**: Use the "Clear Cache" button in the sidebar to refresh outdated data or reset storage.
+
+
+### Fork-specific improvements / 本 Fork 新增功能
+
+- **Remember CF Handle / 记住 Handle**: The Handle is stored in your current browser's `localStorage` and prefilled on later visits to the same app origin (no login or database). Clearing browser site data removes it. 当前浏览器再次访问同一网站会自动填入上次的 Handle。
+- **New account mode / 新账号模式**: Enable this *only when simulating a new account from its first rated contest* (2020+ rules). Internal starting rating is 1400, displayed initial rating is 0, and the first six rated contests add visible bonuses of 500, 350, 250, 150, 100, and 50 on top of estimated internal Delta. **Do not enable it to start from an established account's current Rating.** 只在从新账号第一场比赛开始完整模拟时开启。
+- **Unrated VP override / Unrated 手动指定**: Codeforces' API does not provide a universal historical rating-eligibility cutoff. The old `max(oldRating)` cutoff guess was removed because it incorrectly marked actual rated rounds as unrated. If a VP contest should not count, enter its contest ID in the sidebar (multiple IDs separated by commas); all VP sessions in that contest will have Delta 0. **Unlisted VPs are estimates, not guaranteed rated.** 无法自动可靠判定的比赛请按实际资格手动排除。
+- **Regression tests / 简单测试**: `python -m unittest discover -v -p 'test_*.py'`. These are offline tests, not live API or end-to-end browser tests.
+
+The five-nearest-proxy Rating estimator remains unchanged. Its results, and VP eligibility in unlisted contests, are still approximate.
