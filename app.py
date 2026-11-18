@@ -276,6 +276,14 @@ existing = override_store.get(handle_key, set())
 event_by_key = {event["key"]: event for event in vp_events}
 selected_keys = set(existing)
 if vp_events:
+    preview_exclusions = frozenset(
+        existing | {event["key"] for event in vp_events
+                    if event["cid"] in bulk_excluded}
+    )
+    preview_history, _ = simulate(
+        raw["events"], raw["changes"], preview_exclusions
+    )
+    preview_by_key = {row["key"]: row for row in preview_history}
     editor_rows = []
     for event in vp_events:
         detail = event["vp_details"]
@@ -285,6 +293,7 @@ if vp_events:
             T["contest"]: event["name"],
             T["date"]: _date(event["ts"]),
             T["rank"]: event["rank"],
+            "Est. Δ": preview_by_key.get(event["key"], {}).get("model_delta"),
             "Bulk ID excluded": event["cid"] in bulk_excluded,
             T["solved"]: detail["solved"],
             T["score"]: detail["score"],
@@ -298,7 +307,7 @@ if vp_events:
             T["excluded"]: st.column_config.CheckboxColumn(T["excluded"]),
             "Link": st.column_config.LinkColumn("Codeforces", display_text="Open"),
         },
-        disabled=[T["contest"], T["date"], T["rank"], "Bulk ID excluded", T["solved"], T["score"], "Link"],
+        disabled=[T["contest"], T["date"], T["rank"], "Est. Δ", "Bulk ID excluded", T["solved"], T["score"], "Link"],
         key=f"vp_editor_{handle_key}",
     )
     selected_keys = {
