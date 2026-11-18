@@ -11,7 +11,7 @@ A Streamlit tool that reconstructs **Codeforces Virtual Participation (VP)** res
 ### 主要功能
 
 - **自动读取比赛历史**：通过 Handle 获取正式 Rated 比赛和可识别的 VP，按比赛实际开始时间合并排序，而不是依照官方 Rating 的更新时刻。
-- **可交互的 VP 管理**：表格按每次 VP 会话展示比赛、时间、估计排名、AC、得分和 Codeforces 链接；逐行勾选 `Unrated` 即可重新计算，不必重新下载历史数据。同一场比赛的多次 VP 可以分别管理。
+- **可交互的 VP 管理**：表格按每次 VP 会话展示比赛、时间、估计排名、预估 Delta、AC、得分和 Codeforces 链接；逐行勾选 `Unrated` 即可重新计算，不必重新下载历史数据。同一场比赛的多次 VP 可以分别管理。
 - **批量 Unrated**：输入多个 Contest ID，如 `1084, 1200, 1350`（中英文逗号均支持），对应比赛的全部 VP Delta 归零，且不会占用新人前六场名额。未手动排除的 VP 不保证一定具备 Rated 资格。
 - **单场预测详情**：查看 VP 得分、AC、罚时（如适用）、解出的题目，以及估算 Delta 使用的五名真实参考选手及其历史 Rating、排名、Delta 和距离权重。
 - **两条模拟曲线**：同时模拟「含 VP」和「不含 VP（仅正式比赛）」。两者的末尾 Rating 之差称为**VP 模拟贡献**。另外展示官方 Rating 及「只模拟正式比赛」相对官方值的误差，避免把模型自身误差全部归因于 VP。
