@@ -16,9 +16,9 @@ A **Streamlit** tool that reconstructs Codeforces Virtual Participation (VP) res
 - **Per-contest prediction details:** Inspect estimated ranking, score, accepted problems, ICPC time penalty (when applicable), and up to five real proxy participants used to estimate Rating Delta, including their Handles, profile links, pre-contest Ratings, ranks, actual Deltas, and adjusted Deltas.
 - **Two simulated trajectories:** Plot a REAL-only model and a REAL+VP model, optionally alongside the official Rating history. The difference between the two modeled final Ratings is reported as the **VP modeled contribution**. The REAL-only model's deviation from the official Rating is displayed separately.
 - **Automatic newcomer handling:** For histories covered by the modern Codeforces newcomer policy, use an internal initial Rating of 1400 and an initial displayed Rating of 0; the first six counted Rated contests apply display bonuses of 500, 350, 250, 150, 100, and 50. No newcomer checkbox is needed. Older histories and the policy transition period remain approximate.
-- **Remember the Handle:** Store the last entered Handle in this browser's `localStorage` for pre-filling on later visits to the same app URL.
+- **Browser-local preferences:** Save the last entered Handle and per-VP Unrated selections in this browser's `localStorage`. Different Handles have separate settings; clearing site data may remove them.
 
-**Session-state note:** The VP manager table is the single place to mark individual VP runs Unrated; contest IDs no longer need to be entered. These selections are stored only in the active Streamlit session, not persisted across browser sessions. An unexcluded VP is **not** guaranteed to have been eligible for an official Rated result.
+**Unrated selection note:** The VP table is the single place to mark sessions Unrated; contest IDs do not need manual entry. Selections persist in this browser but do **not** sync between browsers or devices. A mobile-friendly card view is available for narrow screens. An unexcluded VP is **not** guaranteed to have been eligible for an official Rated result.
 
 ## Prediction methodology
 
@@ -30,7 +30,7 @@ A **Streamlit** tool that reconstructs Codeforces Virtual Participation (VP) res
 4. Simulate the timeline twice. **VP modeled contribution = final model Rating with VP − final model Rating with REAL contests only.** This is a counterfactual estimate, **not** the points Codeforces would necessarily have awarded.
 5. Surface warnings when contest start times, standings, or historical Rating changes are unavailable. Missing data can make a simulation incomplete.
 
-The project's original five-nearest-proxy Rating approximation has deliberately been retained. This should not be mistaken for a fully validated reproduction of the official Codeforces Rating engine. Unusual contests, historical policy changes, and newcomer behavior may introduce systematic errors.
+**Empirical leave-one-out check:** Across 10 official contests and 250 sampled rated users, the five-proxy single-contest Delta estimator achieved **MAE 16.57 Rating**, **P90 absolute error 51**, and **mean signed error +0.08**. See the [backtest report (Chinese)](BACKTEST.md) and run `python backtest.py` to reproduce. These are **not** measurements of VP reconstruction or cumulative simulated Rating accuracy. The original heuristic and its parameters remain unchanged.
 
 ## Caching and rate limits
 
@@ -38,6 +38,7 @@ The project's original five-nearest-proxy Rating approximation has deliberately 
 - Contest listings, standings, and historical `contest.ratingChanges` responses use shared server-side caches to avoid repeated downloads across Handles.
 - User submissions are fetched in full initially, then refreshed incrementally with paginated `user.status` requests, including an overlap that refreshes recent verdicts.
 - Changing a VP's Unrated status triggers local resimulation; it does not refetch all historical data.
+- Fetching provides phased progress and a short preview of identified contests; missing required Rating data halts further estimates and marks the final result incomplete with a retry option.
 - The on-disk cache lives in `data/cf_api_v2/`. **Streamlit Community Cloud does not guarantee local disk persistence** across restarts and redeployments.
 - Browser-local Handle persistence is separate from server-side API caching.
 
@@ -70,6 +71,9 @@ GitHub Actions installs the real app dependencies, checks module imports, and ru
 | `predictor_core.py` | Five-proxy Delta prediction, counterfactual paths, and proxy evidence |
 | `rating_rules.py` | Newcomer displayed Rating rules |
 | `persistent_handle.py` | Browser-local Handle persistence |
+| `unrated_storage.py` | Browser-local per-VP Unrated preferences |
+| `backtest.py` | Repeatable leave-one-out estimator backtest |
+| `BACKTEST.md` | Observed ten-contest/250-user backtest results (Chinese) |
 
 ## Credits
 
