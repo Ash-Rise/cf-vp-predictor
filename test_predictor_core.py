@@ -1,6 +1,6 @@
 import unittest
 
-from predictor_core import estimate_delta, modeled_vp_contribution, simulate
+from predictor_core import build_official_events, estimate_delta, modeled_vp_contribution, simulate
 
 
 def contest_event(kind, cid, ts, rank, key=None):
@@ -65,6 +65,25 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(missing, [event["key"]])
         self.assertTrue(history[-1]["unavailable"])
         self.assertEqual(history[-1]["delta"], 0)
+
+    def test_official_time_is_contest_start_not_rating_update(self):
+        records = [{
+            "contestId": 123, "rank": 42, "contestName": "Round 123",
+            "newRating": 1200, "ratingUpdateTimeSeconds": 200000,
+        }]
+        events, official, missing = build_official_events(records, {123: 180000})
+        self.assertEqual(events[0]["ts"], 180000)
+        self.assertEqual(int(official[0]["date"].timestamp()), 200000)
+        self.assertEqual(missing, 0)
+
+    def test_missing_start_is_reported(self):
+        records = [{
+            "contestId": 123, "rank": 42, "contestName": "Round 123",
+            "newRating": 1200, "ratingUpdateTimeSeconds": 200000,
+        }]
+        events, _, missing = build_official_events(records, {})
+        self.assertEqual(events[0]["ts"], 200000)
+        self.assertEqual(missing, 1)
 
     def test_start_time_order_determines_rating_sequence(self):
         events = [
