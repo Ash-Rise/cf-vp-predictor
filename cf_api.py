@@ -67,7 +67,7 @@ def _write(path, data):
 def _compact(method, result):
     if method == "contest.ratingChanges":
         return [
-            {"rank": r["rank"], "oldRating": r["oldRating"], "newRating": r["newRating"]}
+            {"rank": r["rank"], "oldRating": r["oldRating"], "newRating": r["newRating"], "handle": r.get("handle", "")}
             for r in result
         ]
     if method == "contest.list":
