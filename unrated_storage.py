@@ -1,7 +1,7 @@
 """Keep per-VP Unrated selections in this browser (not on the server).
 
 Components v2 sends a saved list to Python when its localStorage data is read.
-A write is performed only when the user actually changes the table. No
+A write is performed only when the user changes a VP checkbox. No
 submission history, password, or API response is stored in the browser.
 """
 import json
@@ -10,12 +10,13 @@ import streamlit as st
 
 _COMPONENT_JS = r"""
 export default function({parentElement, data, setStateValue}) {
+  const instance = parentElement.querySelector('span').dataset;
   const handle = (data.handle || '').trim().toLowerCase();
   const key = 'cf-vp-predictor:unrated:' + handle;
   const state = data.write;
   // Read once on mount and again if the user switches Handle.
-  if (parentElement.dataset.handle !== handle) {
-    parentElement.dataset.handle = handle;
+  if (instance.handle !== handle) {
+    instance.handle = handle;
     let raw = '[]';
     try { raw = window.localStorage.getItem(key) || '[]'; } catch (_) {}
     try {
@@ -28,8 +29,8 @@ export default function({parentElement, data, setStateValue}) {
   // Only explicit checkbox edits may trigger writes. Do not overwrite storage
   // during initial loading, reruns or a Handle switch.
   if (state && state.handle === handle && state.nonce &&
-      parentElement.dataset.lastWrite !== state.nonce) {
-    parentElement.dataset.lastWrite = state.nonce;
+      instance.lastWrite !== state.nonce) {
+    instance.lastWrite = state.nonce;
     try {
       window.localStorage.setItem(key, JSON.stringify(state.keys));
     } catch (_) {}
@@ -58,11 +59,11 @@ def parse_saved_value(raw, expected_handle, valid_keys):
         return None
 
 
-def sync_unrated_storage(handle, selected, *, write=None):
-    """Return a freshly read set, if available, else None.
+def sync_unrated_storage(handle, *, write=None):
+    """Return the component's browser-read payload, or an empty string.
 
     The optional write is {handle, keys, nonce}; caller must supply it only
-    after a user-initiated table edit. Existing Python session settings remain
+    after a user-initiated checkbox edit. Existing Python session settings remain
     authoritative until a valid browser response arrives.
     """
     result = _COMPONENT(

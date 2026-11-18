@@ -338,7 +338,7 @@ valid_keys = {event["key"] for event in vp_events}
 hydrated = st.session_state.setdefault("unrated_storage_hydrated", set())
 writes = st.session_state.setdefault("unrated_storage_writes", {})
 browser_read = sync_unrated_storage(
-    handle_key, existing, write=writes.get(handle_key)
+    handle_key, write=writes.get(handle_key)
 )
 if handle_key not in hydrated:
     restored = parse_saved_value(browser_read, handle_key, valid_keys)
