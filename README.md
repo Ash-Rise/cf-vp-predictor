@@ -26,9 +26,7 @@
 1. 从 `user.rating` 取得正式 Rated 比赛历史；从 `user.status` 识别 VP 提交。
 2. 优先使用 `author.startTimeSeconds` 区分同一比赛的不同 VP，会话内按比赛时长过滤有效提交，并利用 `contest.standings` 估计名次。主要支持 CF 和 ICPC 计分；未支持的模式不会冒充 CF 计分。
 3. 通过 `contest.ratingChanges` 获取同场真实选手的赛前 Rating、名次和实际 Delta，使用近邻成本
-   [
-   cost = 0.8|R_i-R| + 1.5|rank_i-rank|
-   ]
+   `cost = 0.8 × |R_i − R| + 1.5 × |rank_i − rank|`
    选取最多五名参考选手；当至少有三名参考选手时，去掉调整后 Delta 的最大、最小值，再对其余值取均值。
 4. 按比赛开始时间顺序模拟两条 Rating 路径。**VP 模拟贡献 = 含 VP 模拟末尾 Rating − 仅正式比赛模拟末尾 Rating**。它是两种模型情景的差值，**不是** Codeforces 官方会授予的分数。
 5. 如果比赛开始时间、榜单或 Rating 变化记录不可用，页面会提供警告。部分缺失数据可能使结果不完整。
