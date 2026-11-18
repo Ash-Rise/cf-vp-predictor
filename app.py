@@ -10,6 +10,7 @@ from cf_api import CFAPIError, clear_personal_cache, get_json, get_user_submissi
 from chart_controls import PLOTLY_CONFIG, lock_rating_chart
 from persistent_handle import persistent_handle_input
 from predictor_core import build_official_events, modeled_vp_contribution, simulate
+from unrated_storage import parse_saved_value, sync_unrated_storage
 from vp_utils import group_vp_sessions, reconstruct_vp_result
 
 
@@ -265,6 +266,21 @@ st.caption(T["vp_help"])
 handle_key = HANDLE.strip().casefold()
 override_store = st.session_state.setdefault("unrated_vp_sessions", {})
 existing = override_store.get(handle_key, set())
+valid_keys = {event["key"] for event in vp_events}
+hydrated = st.session_state.setdefault("unrated_storage_hydrated", set())
+writes = st.session_state.setdefault("unrated_storage_writes", {})
+browser_read = sync_unrated_storage(
+    handle_key, existing, write=writes.get(handle_key)
+)
+if handle_key not in hydrated:
+    restored = parse_saved_value(browser_read, handle_key, valid_keys)
+    if restored is not None:
+        existing = restored
+        override_store[handle_key] = restored
+        hydrated.add(handle_key)
+        st.session_state.setdefault("vp_editor_epochs", {})[handle_key] = (
+            st.session_state.setdefault("vp_editor_epochs", {}).get(handle_key, 0) + 1
+        )
 event_by_key = {event["key"]: event for event in vp_events}
 selected_keys = set(existing)
 if vp_events:
@@ -295,13 +311,25 @@ if vp_events:
             "Link": st.column_config.LinkColumn("Codeforces", display_text="Open"),
         },
         disabled=[T["contest"], T["date"], T["rank"], "Est. Δ", T["solved"], "Link"],
-        key=f"vp_editor_{handle_key}",
+        key=f"vp_editor_{handle_key}_{st.session_state.setdefault('vp_editor_epochs', {}).get(handle_key, 0)}",
     )
     selected_keys = {
         row["Session"] for _, row in edited.iterrows()
         if bool(row[T["excluded"]])
     }
-    override_store[handle_key] = selected_keys
+    if selected_keys != set(existing):
+        override_store[handle_key] = selected_keys
+        if handle_key in hydrated:
+            version = st.session_state.setdefault("unrated_write_versions", {}).get(handle_key, 0) + 1
+            st.session_state["unrated_write_versions"][handle_key] = version
+            writes[handle_key] = {
+                "handle": handle_key,
+                "keys": sorted(selected_keys),
+                "nonce": f"{handle_key}:{version}",
+            }
+            st.rerun()
+    else:
+        override_store[handle_key] = selected_keys
 else:
     st.info(T["no_vps"])
 
