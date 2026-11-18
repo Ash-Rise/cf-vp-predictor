@@ -231,7 +231,7 @@ def load_analysis(handle):
                 "contest.ratingChanges", {"contestId": cid}
             )
             if not changes_by_cid[cid]:
-                warnings.append(T["changes_missing"].format(cid=cid)
+                warnings.append(T["changes_missing"].format(cid=cid))
         except CFAPIError as exc:
             changes_by_cid[cid] = None
             warnings.append(str(exc))
