@@ -13,13 +13,12 @@ A **Streamlit** tool that reconstructs Codeforces Virtual Participation (VP) res
 
 - **Chronological contest history:** Combine `user.rating` and `user.status` data and order official rounds and VPs by their **actual start times**, rather than the later Rating update timestamps.
 - **Interactive VP manager:** Each VP session has a row showing the contest, date, estimated rank, estimated internal Delta, solved count, score, and a Codeforces link. Check `Unrated` to recalculate the simulation without downloading data again. Repeated VPs of the same contest are managed separately.
-- **Bulk VP exclusions:** Enter multiple contest IDs, such as `1084, 1200, 1350`, separated by commas. All VP sessions for those contests are treated as Unrated.
 - **Per-contest prediction details:** Inspect estimated ranking, score, accepted problems, ICPC time penalty (when applicable), and up to five real proxy participants used to estimate Rating Delta, including their Handles, profile links, pre-contest Ratings, ranks, actual Deltas, and adjusted Deltas.
 - **Two simulated trajectories:** Plot a REAL-only model and a REAL+VP model, optionally alongside the official Rating history. The difference between the two modeled final Ratings is reported as the **VP modeled contribution**. The REAL-only model's deviation from the official Rating is displayed separately.
 - **Automatic newcomer handling:** For histories covered by the modern Codeforces newcomer policy, use an internal initial Rating of 1400 and an initial displayed Rating of 0; the first six counted Rated contests apply display bonuses of 500, 350, 250, 150, 100, and 50. No newcomer checkbox is needed. Older histories and the policy transition period remain approximate.
 - **Remember the Handle:** Store the last entered Handle in this browser's `localStorage` for pre-filling on later visits to the same app URL.
 
-**Session-state note:** Individual VP checkboxes are currently stored in the active Streamlit session, not persisted across browser sessions. Bulk contest IDs can be re-entered to restore exclusions. An unexcluded VP is **not** guaranteed to have been eligible for an official Rated result.
+**Session-state note:** The VP manager table is the single place to mark individual VP runs Unrated; contest IDs no longer need to be entered. These selections are stored only in the active Streamlit session, not persisted across browser sessions. An unexcluded VP is **not** guaranteed to have been eligible for an official Rated result.
 
 ## Prediction methodology
 
@@ -69,7 +68,7 @@ GitHub Actions installs the real app dependencies, checks module imports, and ru
 | `cf_api.py` | Codeforces API client, pacing, shared caches, and incremental user status |
 | `vp_utils.py` | VP session grouping, score reconstruction, and rank estimation |
 | `predictor_core.py` | Five-proxy Delta prediction, counterfactual paths, and proxy evidence |
-| `rating_rules.py` | Newcomer displayed Rating rules and bulk Unrated ID parsing |
+| `rating_rules.py` | Newcomer displayed Rating rules |
 | `persistent_handle.py` | Browser-local Handle persistence |
 
 ## Credits
