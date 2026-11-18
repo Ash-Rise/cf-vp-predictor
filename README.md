@@ -1,46 +1,52 @@
 # Codeforces VP Rating Simulator
 
-[Live app](https://ashrise-cf-vp-predictor.streamlit.app/) · [Source](https://github.com/Ash-Rise/cf-vp-predictor) · [Codeforces API](https://codeforces.com/apiHelp)
+**简体中文** · [English](README_EN.md)
 
-A Streamlit tool that reconstructs **Codeforces Virtual Participation (VP)** results from submission history and estimates a hypothetical Rating timeline alongside officially rated contests.
+[在线体验](https://ashrise-cf-vp-predictor.streamlit.app/) · [GitHub 仓库](https://github.com/Ash-Rise/cf-vp-predictor) · [Codeforces API](https://codeforces.com/apiHelp)
 
-> **Not an official Rating calculator.** It compares historical virtual scores with real participants and uses a five-nearest-proxy heuristic. Some contest rules and Rated eligibility conditions cannot be verified from public API data. All Rating and VP-effect numbers are estimates.
+一个基于 **Streamlit** 的 Codeforces Rating 模拟工具：读取用户的正式比赛记录和虚拟参赛（VP）提交，重建 VP 成绩，并估算将这些 VP 计入 Rated 历史之后的 Rating 走势。
 
-## 中文说明
+> [!IMPORTANT]
+> **本项目不是 Codeforces 官方 Rating 计算器。** VP 排名和 Rating 变化均为估算结果；历史比赛的特殊规则、Hack、Rated 资格及 API 数据缺失都可能导致偏差。
 
-### 主要功能
+## 功能
 
-- **自动读取比赛历史**：通过 Handle 获取正式 Rated 比赛和可识别的 VP，按比赛实际开始时间合并排序，而不是依照官方 Rating 的更新时刻。
-- **可交互的 VP 管理**：表格按每次 VP 会话展示比赛、时间、估计排名、预估 Delta、AC、得分和 Codeforces 链接；逐行勾选 `Unrated` 即可重新计算，不必重新下载历史数据。同一场比赛的多次 VP 可以分别管理。
-- **批量 Unrated**：输入多个 Contest ID，如 `1084, 1200, 1350`（中英文逗号均支持），对应比赛的全部 VP Delta 归零，且不会占用新人前六场名额。未手动排除的 VP 不保证一定具备 Rated 资格。
-- **单场预测详情**：查看 VP 得分、AC、罚时（如适用）、解出的题目，以及估算 Delta 使用的五名真实参考选手及其历史 Rating、排名、Delta 和距离权重。
-- **两条模拟曲线**：同时模拟「含 VP」和「不含 VP（仅正式比赛）」。两者的末尾 Rating 之差称为**VP 模拟贡献**。另外展示官方 Rating 及「只模拟正式比赛」相对官方值的误差，避免把模型自身误差全部归因于 VP。
-- **新账号规则自动应用**：对于适用 2020 年后新人规则的历史，内部从 1400 开始估算，显示曲线从 0 开始；前六场有效 Rated 比赛依次应用 500、350、250、150、100、50 的显示分补偿。界面不需要 New Account 勾选。对于旧比赛使用近似兼容策略，过渡期的精确性没有保证。
-- **浏览器记住 Handle**：利用本机浏览器 `localStorage` 自动填入最近使用的 Handle，无需注册或登录。
+- **自动整理历史比赛**：读取 `user.rating` 与 `user.status`，优先按正式比赛和 VP 各自的**开始时间**排序，而非使用较晚的 Rating 更新时间。
+- **可交互的 VP 管理**：表格按每次 VP 会话展示比赛、日期、估计排名、预估内部 Delta、AC 数、得分及 Codeforces 链接。勾选某行的 `Unrated` 即可重新计算，无需重新下载数据。同一比赛的多次 VP 可以单独管理。
+- **批量排除 VP**：也可以在侧边栏填入多个 Contest ID，例如 `1084, 1200, 1350`（支持中英文逗号），将这些比赛的所有 VP 标记为 Unrated。
+- **单场预测详情**：查看 VP 的估计排名、得分、解出题目、ICPC 罚时（如适用），以及预测 Delta 使用的最多五名真实参考选手：Handle、主页、赛前 Rating、排名、实际 Delta 与调整后 Delta。
+- **对比两种模拟路径**：同时绘制“仅正式比赛”和“正式比赛 + VP”的模拟曲线，并可叠加官方实际 Rating。两种模拟最终值之差显示为 **VP 模拟贡献**；另外显示模型相对于官方 Rating 的偏差，避免将估算误差误称为 VP 收益。
+- **自动应用新人显示规则**：适用新版规则的账号使用内部起始 Rating 1400、初始显示分 0；前六场有效 Rated 比赛依次使用 500、350、250、150、100、50 的显示分补偿。无需手动勾选新账号选项。旧账号与规则过渡期采用近似处理。
+- **记住 Handle**：最近使用的 Handle 会保存在当前浏览器的 `localStorage`，再次访问同一网址可自动填入。
 
-### 预测原理与局限
+**注意：** VP 管理表格中的手动勾选保存在当前 Streamlit 会话状态中，尚未提供跨会话持久化。侧边栏的批量 ID 输入可以方便地重新指定排除范围。未排除的 VP 不代表一定符合官方 Rated 资格。
 
-1. `user.rating` 读取真实 Rated 比赛；`user.status` 读取或增量更新提交记录。
-2. 依照 VP 的 `author.startTimeSeconds` 分组，通过 `contest.standings` 重建成绩并估计同场排名。不同比赛的 CF / ICPC 规则尽可能分别处理；IOI 等不支持的计分不会伪装成 CF。
-3. 对每个可能计分的比赛，读取 `contest.ratingChanges`，以「赛前 Rating 差 × 0.8 + 排名差 × 1.5」挑选最多五名参考选手，并对其实际 Delta 计算截尾均值。
-4. 依序模拟两条路径。**VP 模拟贡献 = 含 VP 的模型最终 Rating − 仅正式比赛的模型最终 Rating**，不是 VP 的官方真实收益。
-5. 如果缺少比赛开始时间或 Rating 变化数据，页面明确显示警告。Hack、特殊计分规则、无 Rated 资格的 VP、完整历史新人政策等仍可能影响准确性。
+## 预测方法
 
-### 缓存和限流
+1. 从 `user.rating` 取得正式 Rated 比赛历史；从 `user.status` 识别 VP 提交。
+2. 优先使用 `author.startTimeSeconds` 区分同一比赛的不同 VP，会话内按比赛时长过滤有效提交，并利用 `contest.standings` 估计名次。主要支持 CF 和 ICPC 计分；未支持的模式不会冒充 CF 计分。
+3. 通过 `contest.ratingChanges` 获取同场真实选手的赛前 Rating、名次和实际 Delta，使用近邻成本
+   [
+   cost = 0.8|R_i-R| + 1.5|rank_i-rank|
+   ]
+   选取最多五名参考选手；当至少有三名参考选手时，去掉调整后 Delta 的最大、最小值，再对其余值取均值。
+4. 按比赛开始时间顺序模拟两条 Rating 路径。**VP 模拟贡献 = 含 VP 模拟末尾 Rating − 仅正式比赛模拟末尾 Rating**。它是两种模型情景的差值，**不是** Codeforces 官方会授予的分数。
+5. 如果比赛开始时间、榜单或 Rating 变化记录不可用，页面会提供警告。部分缺失数据可能使结果不完整。
 
-所有 Codeforces API 请求由进程内统一调度器控制，按官方 **不超过每两秒一次**的节奏请求。正式比赛榜单、Rating 变化和比赛目录复用服务器缓存；个人提交首次获取完整历史，之后通过 `user.status?from=...&count=...` 增量读取新提交并刷新最新的判题结果。
+当前保留原项目的五邻居 Delta 近似算法，未宣称已经精确复现 Codeforces 官方 Rating 计算。不同历史时期、特殊赛制及新人机制仍可能有系统性误差。
 
-缓存存放在 `data/cf_api_v2/`，只是**临时服务器缓存**，Streamlit Community Cloud 重启或重新部署后不保证持久存在。切换 Unrated 设置不会重新下载比赛数据。浏览器保存的 Handle 与服务器 API 缓存彼此独立。
+## 缓存与请求频率
 
-## English
+- 所有 Codeforces API 请求经过**进程内统一节流器**，设置至少约 2.1 秒的请求起始间隔，并带有限次重试。
+- 比赛目录、榜单和 `contest.ratingChanges` 使用服务端共享缓存，降低不同用户查询同一比赛时的重复请求。
+- 个人提交首次读取全部历史；后续使用 `user.status` 分页增量获取，并覆盖更新最近的判题状态。个人数据缓存有短期有效期。
+- 调整 Unrated 勾选时仅重新执行本地模拟，不会为每次勾选重新下载 API 数据。
+- 本地缓存位于 `data/cf_api_v2/`。**Streamlit Community Cloud 上的本地磁盘不能保证永久持久化**；服务重启或重新部署可能需要重新获取。
+- 浏览器记住 Handle 与服务器缓存是两个独立机制。
 
-**Features:** chronological official+VP reconstruction; session-level Unrated checkboxes and comma-separated bulk exclusions; inspectable per-contest score and five-proxy Delta explanation; official vs. simulated Rating lines; a more meaningful VP contribution computed by subtracting two **simulated** scenarios; browser-persistent Handle; shared contest caches, incremental submission refresh and strict API pacing.
+## 本地运行
 
-**Important limitations:** This is a counterfactual approximation, not a reimplementation of Codeforces' complete Rating engine. Historical newcomer rules, contests with hacks or unusual scoring, missing ratings, and VP Rated eligibility can produce errors. Unrated rows only represent explicit user exclusions.
-
-## Local development
-
-Python 3.11+ is recommended.
+建议 Python 3.11 或更新版本。
 
 ```bash
 git clone https://github.com/Ash-Rise/cf-vp-predictor.git
@@ -49,23 +55,29 @@ python -m pip install -r requirements.txt
 streamlit run app.py
 ```
 
-To run the small offline regression and startup checks:
+运行小范围离线测试及 Streamlit 启动冒烟测试：
 
 ```bash
 python -m unittest discover -v -p "test_*.py"
 ```
 
-GitHub Actions installs the app's actual dependencies, compiles the modules, runs pure-function tests, and renders the initial Streamlit page through AppTest. These checks do **not** replace browser-based or real Codeforces API smoke tests.
+GitHub Actions 会安装真实运行依赖、检查 Python 模块导入并运行测试。**目前尚不能替代真实浏览器交互及实际 Codeforces API 的端到端验证**。
 
-## Source files
+## 项目结构
 
-| Path | Responsibility |
+| 文件 | 作用 |
 |---|---|
-| `app.py` | Streamlit UI, VP editor, detail inspector and plotting |
-| `cf_api.py` | API client, request pacing, shared and incremental caches |
-| `vp_utils.py` | VP session grouping and score/rank reconstruction |
-| `predictor_core.py` | Five-proxy estimation, two counterfactual paths and evidence |
-| `rating_rules.py` | New-account display behavior and manual Unrated ID parsing |
-| `persistent_handle.py` | Browser-local Handle persistence |
+| `app.py` | Streamlit 页面、VP 编辑表格、单场详情与图表 |
+| `cf_api.py` | Codeforces API、请求节流、共享缓存及个人提交增量更新 |
+| `vp_utils.py` | VP 会话划分、得分与排名重建 |
+| `predictor_core.py` | 五邻居 Delta 估算、双路径模拟与预测详情 |
+| `rating_rules.py` | 新人显示分规则及批量 Unrated ID 解析 |
+| `persistent_handle.py` | 浏览器本地 Handle 保存 |
 
-This fork is based on [vividStareium/cf-vp-predictor](https://github.com/vividStareium/cf-vp-predictor). Its five-proxy Rating estimator remains deliberately close to the original pending proper historical backtesting.
+## 致谢与来源
+
+本项目 Fork 自 [vividStareium/cf-vp-predictor](https://github.com/vividStareium/cf-vp-predictor)。保留其基于同场参考选手估算 Rating Delta 的核心思路，在此基础上改进了数据处理、交互管理和预测结果解释。
+
+---
+
+[Read this documentation in English](README_EN.md)
