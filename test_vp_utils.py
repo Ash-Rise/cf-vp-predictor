@@ -59,6 +59,20 @@ class VPTests(unittest.TestCase):
                      'problems': [], 'rows': []}
         self.assertIsNone(estimate_vp_rank([], 1000, standings))
 
+    def test_icpc_deduces_20_minute_penalty(self):
+        standings = {'contest': {'type': 'ICPC', 'durationSeconds': 7200},
+                     'problems': [{'index': 'A'}],
+                     'rows': [
+                         {'points': 1, 'penalty': 55, 'problemResults': [
+                             {'points': 1, 'bestSubmissionTimeSeconds': 900, 'rejectedAttemptCount': 2}]},
+                         {'points': 1, 'penalty': 70, 'problemResults': [
+                             {'points': 1, 'bestSubmissionTimeSeconds': 4200, 'rejectedAttemptCount': 0}]}]}
+        runs = [sub(1, 1000, 1600, 'A', 'WRONG_ANSWER'),
+                sub(1, 1000, 3400, 'A', 'OK')]
+        # 40 minutes + 20 minutes = 60, so the first row is better.
+        self.assertEqual(estimate_vp_rank(runs, 1000, standings), 2)
+
+
 
 if __name__ == '__main__':
     unittest.main()
