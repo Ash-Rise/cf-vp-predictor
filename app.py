@@ -114,19 +114,24 @@ with st.sidebar:
 NEWCOMER_MODE = st.sidebar.checkbox(
     T["newcomer_mode"], value=False, help=T["newcomer_help"]
 )
-INITIAL_RATING = st.sidebar.number_input(
-    T["input_init_rating"], value=1400, step=100, disabled=NEWCOMER_MODE
-)
 if NEWCOMER_MODE:
-    INITIAL_RATING = 1400
+    INITIAL_RATING = st.sidebar.number_input(
+        T["input_init_rating"], value=1400, disabled=True, key="new_account_initial"
+    )
+else:
+    INITIAL_RATING = st.sidebar.number_input(
+        T["input_init_rating"], value=1400, step=100, key="established_initial"
+    )
 UNRATED_IDS_TEXT = st.sidebar.text_input(
     T["manual_unrated"], value="", help=T["manual_unrated_help"]
 )
 try:
     MANUAL_UNRATED_IDS = parse_unrated_vp_ids(UNRATED_IDS_TEXT)
+    UNRATED_IDS_VALID = True
 except ValueError as exc:
     st.sidebar.error(T["bad_unrated"].format(error=exc))
     MANUAL_UNRATED_IDS = frozenset()
+    UNRATED_IDS_VALID = False
 
 st.sidebar.info(T["note"])
 
@@ -585,7 +590,7 @@ def plot_plotly(sim_history, real_history, show_real, local_t):
         )
         st.plotly_chart(fig, use_container_width=True)
 
-if st.button(T["btn_start"], type="primary"):
+if st.button(T["btn_start"], type="primary", disabled=not UNRATED_IDS_VALID):
     if not HANDLE:
         st.warning(T["warn_no_data"])
         st.stop()
