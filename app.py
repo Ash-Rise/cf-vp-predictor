@@ -12,7 +12,7 @@ import threading
 import shutil
 from vp_utils import group_vp_sessions, estimate_vp_rank
 from persistent_handle import persistent_handle_input
-from rating_rules import visible_rating, parse_unrated_vp_ids
+from rating_rules import visible_rating, parse_unrated_vp_ids, DEFAULT_INITIAL_RATING, INTERNAL_START
 
 api_lock = threading.Semaphore(2)
 file_lock = threading.Lock()
@@ -25,7 +25,6 @@ TRANSLATIONS = {
         "subtitle": "Visualize your potential rating trajectory by integrating Virtual Participation (VP) history.",
         "sidebar_header": "Configuration",
         "input_handle": "CF Handle",
-        "input_init_rating": "Initial Rating",
         "newcomer_mode": "New account (first six rated contests)",
         "newcomer_help": "Use Codeforces' 2020+ newcomer rule: internal 1400, displayed 0 initially, then bonuses of 500/350/250/150/100/50. Disable when simulating from an established rating or old scoring rules.",
         "manual_unrated": "Unrated VP contest IDs (optional)",
@@ -64,7 +63,6 @@ TRANSLATIONS = {
         "subtitle": "通过整合虚拟参赛 (VP) 记录，可视化您的潜在 Rating 走势。",
         "sidebar_header": "配置面板",
         "input_handle": "输入 CF Handle",
-        "input_init_rating": "初始 Rating",
         "newcomer_mode": "新账号模式（前六场 Rated）",
         "newcomer_help": "按 Codeforces 2020 年后新账号规则模拟：计算起始分 1400、显示起始分 0，前六场依次增加 500/350/250/150/100/50 的显示补偿。已有 Rating 开始模拟或旧赛制请关闭。",
         "manual_unrated": "明确为 Unrated 的 VP 比赛 ID（可选）",
@@ -114,14 +112,10 @@ with st.sidebar:
 NEWCOMER_MODE = st.sidebar.checkbox(
     T["newcomer_mode"], value=False, help=T["newcomer_help"]
 )
-if NEWCOMER_MODE:
-    INITIAL_RATING = st.sidebar.number_input(
-        T["input_init_rating"], value=1400, disabled=True, key="new_account_initial"
-    )
-else:
-    INITIAL_RATING = st.sidebar.number_input(
-        T["input_init_rating"], value=1400, step=100, key="established_initial"
-    )
+# Fixed starting point: regular simulations start at 100, while the
+# optional newcomer calculation uses Codeforces' internal 1400 baseline.
+# Neither mode exposes an editable starting-Rating input.
+INITIAL_RATING = INTERNAL_START if NEWCOMER_MODE else DEFAULT_INITIAL_RATING
 UNRATED_IDS_TEXT = st.sidebar.text_input(
     T["manual_unrated"], value="", help=T["manual_unrated_help"]
 )
