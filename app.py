@@ -272,7 +272,6 @@ if vp_events:
             T["rank"]: event["rank"],
             "Est. Δ": preview_by_key.get(event["key"], {}).get("model_delta"),
             T["solved"]: detail["solved"],
-            T["score"]: detail["score"],
             "Link": f"https://codeforces.com/contest/{event['cid']}",
         })
     table = pd.DataFrame(editor_rows)
@@ -283,7 +282,7 @@ if vp_events:
             T["excluded"]: st.column_config.CheckboxColumn(T["excluded"]),
             "Link": st.column_config.LinkColumn("Codeforces", display_text="Open"),
         },
-        disabled=[T["contest"], T["date"], T["rank"], "Est. Δ", T["solved"], T["score"], "Link"],
+        disabled=[T["contest"], T["date"], T["rank"], "Est. Δ", T["solved"], "Link"],
         key=f"vp_editor_{handle_key}",
     )
     selected_keys = {
