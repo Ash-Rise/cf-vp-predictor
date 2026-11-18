@@ -80,7 +80,7 @@ with st.sidebar:
     st.header("Configuration" if lang == "English" else "配置面板")
     HANDLE = persistent_handle_input(T["handle"])
     bulk_text = st.text_input(
-        T["manual"], value="", placeholder="1084, 1200, 1350",
+        T["manual"], value="",
         help=T["manual_help"],
     )
     show_official = st.checkbox(T["official_toggle"], value=True)
