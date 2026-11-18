@@ -1,10 +1,10 @@
-name: Live Delta backtest (one-off)
+name: Codeforces Delta backtest (manual)
 
-on: push
+on:
+  workflow_dispatch:
 
 jobs:
   live-backtest:
-    if: github.event.head_commit.message == 'Run one-time real Codeforces Delta backtest'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -14,5 +14,5 @@ jobs:
           python-version: "3.12"
       - name: Install runtime packages
         run: python -m pip install -r requirements.txt
-      - name: Run ten-contest leave-one-out backtest (25 sampled players each)
+      - name: Reproduce leave-one-out results (ten contests, 25 samples each)
         run: python backtest.py
