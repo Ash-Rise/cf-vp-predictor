@@ -8,7 +8,7 @@ import streamlit as st
 
 from cf_api import CFAPIError, clear_personal_cache, get_json, get_user_submissions
 from persistent_handle import persistent_handle_input
-from predictor_core import modeled_vp_contribution, simulate
+from predictor_core import build_official_events, modeled_vp_contribution, simulate
 from rating_rules import parse_unrated_vp_ids
 from vp_utils import group_vp_sessions, reconstruct_vp_result
 
@@ -122,26 +122,7 @@ def load_analysis(handle):
         warnings.append(f"contest.list unavailable: {exc}")
     progress.progress(14)
 
-    real_history = []
-    events = []
-    missing_start = 0
-    for item in real_data:
-        cid = item["contestId"]
-        rating_updated = item["ratingUpdateTimeSeconds"]
-        contest_start = start_map.get(cid)
-        if not contest_start:
-            contest_start = rating_updated  # Explicit fallback, not the preferred order.
-            missing_start += 1
-        events.append({
-            "key": f"REAL:{cid}:{rating_updated}",
-            "cid": cid, "ts": contest_start, "type": "REAL",
-            "rank": item["rank"], "name": item["contestName"],
-        })
-        real_history.append({
-            "date": datetime.fromtimestamp(rating_updated, timezone.utc),
-            "rating": item["newRating"],
-            "name": item["contestName"], "rank": item["rank"],
-        })
+    events, real_history, missing_start = build_official_events(real_data, start_map)
     if missing_start:
         warnings.append(
             f"{missing_start} official contests lack startTimeSeconds; "
@@ -300,10 +281,11 @@ if vp_events:
         detail = event["vp_details"]
         editor_rows.append({
             "Session": event["key"],
-            T["excluded"]: event["key"] in existing or event["cid"] in bulk_excluded,
+            T["excluded"]: event["key"] in existing,
             T["contest"]: event["name"],
             T["date"]: _date(event["ts"]),
             T["rank"]: event["rank"],
+            "Bulk ID excluded": event["cid"] in bulk_excluded,
             T["solved"]: detail["solved"],
             T["score"]: detail["score"],
             "Link": f"https://codeforces.com/contest/{event['cid']}",
@@ -316,7 +298,7 @@ if vp_events:
             T["excluded"]: st.column_config.CheckboxColumn(T["excluded"]),
             "Link": st.column_config.LinkColumn("Codeforces", display_text="Open"),
         },
-        disabled=[T["contest"], T["date"], T["rank"], T["solved"], T["score"], "Link"],
+        disabled=[T["contest"], T["date"], T["rank"], "Bulk ID excluded", T["solved"], T["score"], "Link"],
         key=f"vp_editor_{handle_key}",
     )
     selected_keys = {
