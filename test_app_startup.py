@@ -57,6 +57,8 @@ class StartupTests(unittest.TestCase):
         )
         self.assertTrue(app.data_editor)
         self.assertTrue(app.selectbox)
+        # No redundant contest-ID input: Unrated is managed in the table.
+        self.assertEqual(len(app.text_input), 0)
 
 
 if __name__ == "__main__":
