@@ -21,7 +21,7 @@ TEXT = {
         "subtitle": "Explore an estimated rating path with your Virtual Participations (VPs). "
                     "These values are model estimates, not official Codeforces ratings.",
         "handle": "Codeforces Handle", "run": "Analyze / Refresh",
-        "clear": "Refresh personal API cache",
+        "clear": "Clear submission and Rating cache for this Handle",
         "official_toggle": "Compare with official rating",
         "unrated_toggle": "Show Unrated VPs on chart",
         "vp_section": "Virtual participation manager",
@@ -45,7 +45,7 @@ TEXT = {
         "config": "Configuration", "loading_history": "Loading contest and submission history…",
         "loading_vp": "Reconstructing VP results: {done}/{total}",
         "loading_rating": "Loading official Rating changes: {done}/{total}",
-        "cache_cleared": "Personal data cache cleared. Analyze again to refresh.",
+        "cache_cleared": "Submission and Rating cache cleared for this Handle. Analyze again to fetch fresh data.",
         "loading_analysis": "Analyzing Codeforces history…",
         "loading_error": "Could not load history: {error}",
         "time_fallback": "{count} contests have no start time; Rating update times were used.",
@@ -58,23 +58,20 @@ TEXT = {
         "detail_select": "Select a VP session", "detail_delta": "Estimated Delta",
         "detail_unavailable": "Unavailable", "detail_solved": "Solved problems",
         "detail_empty": "No accepted submissions.", "detail_proxies": "Five nearest proxy participants",
-        "detail_profile": "Profile",
         "detail_proxy_note": "The highest and lowest adjusted Deltas are removed before averaging when at least three proxies exist.",
         "detail_no_proxies": "No proxy estimate (Unrated or missing rating data).",
         "detail_penalty": "ICPC penalty: {minutes} min",
-        "mobile_mode": "Mobile-friendly cards", "card_link": "Open contest",
         "preview_title": "Identified sessions: {total} (showing first 10 while loading Rating data)",
         "detail_problem": "Problem", "detail_minute": "AC minute",
         "detail_wa": "Wrong attempts", "proxy_rating": "Pre-contest Rating",
         "proxy_rank": "Rank", "proxy_official": "Official Delta",
-        "proxy_adjustment": "Rank adjustment", "proxy_adjusted": "Adjusted Delta",
-        "proxy_distance": "Distance", "proxy_handle": "Handle",
+        "proxy_adjusted": "Adjusted Delta", "proxy_handle": "Handle",
     },
     "中文": {
         "title": "Codeforces VP Rating 模拟器",
         "subtitle": "将虚拟参赛（VP）纳入历史时间线，估算 Rating 走势。结果仅供参考，不等同于官方 Rating。",
         "handle": "Codeforces Handle", "run": "开始分析 / 刷新数据",
-        "clear": "刷新个人 API 缓存",
+        "clear": "清除该账号的提交与 Rating 缓存",
         "official_toggle": "对比官方 Rating",
         "unrated_toggle": "在图表显示 Unrated VP",
         "vp_section": "可交互的 VP 管理",
@@ -97,7 +94,7 @@ TEXT = {
         "config": "配置面板", "loading_history": "正在获取正式比赛与提交历史…",
         "loading_vp": "正在重建 VP 成绩：{done}/{total}",
         "loading_rating": "正在获取官方 Rating 数据：{done}/{total}",
-        "cache_cleared": "个人数据缓存已清除，请重新点击开始分析。",
+        "cache_cleared": "该账号的提交与 Rating 缓存已清除。点击「开始分析」重新获取数据。",
         "loading_analysis": "正在分析 Codeforces 历史记录…",
         "loading_error": "获取历史数据失败：{error}",
         "time_fallback": "有 {count} 场正式比赛缺少开始时间，已暂用 Rating 更新时间排序。",
@@ -110,17 +107,14 @@ TEXT = {
         "detail_select": "选择一场 VP", "detail_delta": "预估 Delta",
         "detail_unavailable": "数据不可用", "detail_solved": "已通过的题目",
         "detail_empty": "暂无通过的题目。", "detail_proxies": "五名最近邻参考选手",
-        "detail_profile": "选手主页",
         "detail_proxy_note": "至少有三名参考选手时，去掉调整后 Delta 的最大值与最小值，再对其余值取平均。",
         "detail_no_proxies": "暂无参考选手数据（Unrated 或官方历史数据缺失）。",
         "detail_penalty": "ICPC 罚时：{minutes} 分钟",
-        "mobile_mode": "手机卡片视图", "card_link": "打开比赛",
         "preview_title": "已识别 {total} 场比赛（正在读取 Rating 数据，暂展示前 10 场）",
         "detail_problem": "题目", "detail_minute": "通过时间（分钟）",
         "detail_wa": "错误提交", "proxy_rating": "赛前 Rating",
         "proxy_rank": "排名", "proxy_official": "官方 Delta",
-        "proxy_adjustment": "排名修正", "proxy_adjusted": "调整后 Delta",
-        "proxy_distance": "距离", "proxy_handle": "选手",
+        "proxy_adjusted": "调整后 Delta", "proxy_handle": "选手",
     },
 }
 
@@ -337,7 +331,7 @@ existing = override_store.get(handle_key, set())
 valid_keys = {event["key"] for event in vp_events}
 hydrated = st.session_state.setdefault("unrated_storage_hydrated", set())
 writes = st.session_state.setdefault("unrated_storage_writes", {})
-browser_read = sync_unrated_storage(
+browser_read, card_view = sync_unrated_storage(
     handle_key, write=writes.get(handle_key)
 )
 if handle_key not in hydrated:
@@ -357,22 +351,6 @@ if vp_events:
         raw["events"], raw["changes"], preview_exclusions
     )
     preview_by_key = {row["key"]: row for row in preview_history}
-    editor_rows = []
-    for event in vp_events:
-        detail = event["vp_details"]
-        editor_rows.append({
-            "Session": event["key"],
-            T["excluded"]: event["key"] in existing,
-            T["contest"]: event["name"],
-            T["date"]: _date(event["ts"]),
-            T["rank"]: event["rank"],
-            T["detail_delta"]: preview_by_key.get(event["key"], {}).get("model_delta"),
-            T["solved"]: detail["solved"],
-            "Link": f"https://codeforces.com/contest/{event['cid']}",
-        })
-    # The table is efficient on desktop; stacked cards avoid horizontal scroll
-    # on narrow mobile screens. Both views modify the same per-session settings.
-    card_view = st.toggle(T["mobile_mode"], value=False, key=f"vp_card_mode_{handle_key}")
     epochs = st.session_state.setdefault("vp_editor_epochs", {})
     previous_modes = st.session_state.setdefault("vp_previous_modes", {})
     if handle_key in previous_modes and previous_modes[handle_key] != card_view:
@@ -385,7 +363,7 @@ if vp_events:
             detail = event["vp_details"]
             estimate = preview_by_key.get(event["key"], {}).get("model_delta")
             with st.container(border=True):
-                st.markdown(f"**{event['name']}**")
+                st.markdown(f"**[{event['name']}](https://codeforces.com/contest/{event['cid']})**")
                 st.caption(f"{_date(event['ts'])} · #{event['cid']}")
                 st.write(
                     f"{T['rank']}: {event['rank']}　"
@@ -397,17 +375,30 @@ if vp_events:
                     key=f"vp_card_{handle_key}_{epoch}_{event['key']}"
                 ):
                     selected_keys.add(event["key"])
-                st.link_button(T["card_link"], f"https://codeforces.com/contest/{event['cid']}")
     else:
-        table = pd.DataFrame(editor_rows)
+        # LinkColumn extracts each name from a fragment, which stays in the browser.
+        table = pd.DataFrame([
+            {
+                "Session": event["key"],
+                T["excluded"]: event["key"] in existing,
+                T["contest"]: f"https://codeforces.com/contest/{event['cid']}#contest-name={event['name']}",
+                T["date"]: _date(event["ts"]),
+                T["rank"]: event["rank"],
+                T["detail_delta"]: preview_by_key.get(event["key"], {}).get("model_delta"),
+                T["solved"]: event["vp_details"]["solved"],
+            }
+            for event in vp_events
+        ])
         edited = st.data_editor(
             table, width="stretch", hide_index=True, num_rows="fixed",
             column_config={
                 "Session": None,
                 T["excluded"]: st.column_config.CheckboxColumn(T["excluded"]),
-                "Link": st.column_config.LinkColumn("Codeforces", display_text=T["card_link"]),
+                T["contest"]: st.column_config.LinkColumn(
+                    display_text=r"#contest-name=(.+)$", alignment="left",
+                ),
             },
-            disabled=[T["contest"], T["date"], T["rank"], T["detail_delta"], T["solved"], "Link"],
+            disabled=[T["contest"], T["date"], T["rank"], T["detail_delta"], T["solved"]],
             key=f"vp_editor_{handle_key}_{epoch}",
         )
         selected_keys = {
@@ -516,17 +507,17 @@ if vp_events:
             st.write(T["detail_empty"])
     st.markdown(f"**{T['detail_proxies']}**")
     if item and item["proxies"]:
+        proxy_labels = {
+            "Profile": T["proxy_handle"],
+            "Pre-contest Rating": T["proxy_rating"], "Rank": T["proxy_rank"],
+            "Official Delta": T["proxy_official"],
+            "Adjusted Delta": T["proxy_adjusted"],
+        }
         st.dataframe(
-            pd.DataFrame(item["proxies"]).rename(columns={
-                "Handle": T["proxy_handle"], "Profile": T["detail_profile"],
-                "Pre-contest Rating": T["proxy_rating"], "Rank": T["proxy_rank"],
-                "Official Delta": T["proxy_official"],
-                "Rank adjustment": T["proxy_adjustment"],
-                "Adjusted Delta": T["proxy_adjusted"],
-                "Distance": T["proxy_distance"],
-            }), hide_index=True, width="stretch",
-            column_config={T["detail_profile"]: st.column_config.LinkColumn(
-                T["detail_profile"], display_text=T["card_link"]
+            pd.DataFrame(item["proxies"])[list(proxy_labels)].rename(columns=proxy_labels),
+            hide_index=True, width="stretch",
+            column_config={T["proxy_handle"]: st.column_config.LinkColumn(
+                display_text=r"/profile/([^/]+)$", alignment="left",
             )},
         )
         st.caption(T["detail_proxy_note"])

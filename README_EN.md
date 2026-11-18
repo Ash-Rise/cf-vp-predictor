@@ -18,7 +18,7 @@ A **Streamlit** tool that reconstructs Codeforces Virtual Participation (VP) res
 - **Automatic newcomer handling:** For histories covered by the modern Codeforces newcomer policy, use an internal initial Rating of 1400 and an initial displayed Rating of 0; the first six counted Rated contests apply display bonuses of 500, 350, 250, 150, 100, and 50. No newcomer checkbox is needed. Older histories and the policy transition period remain approximate.
 - **Browser-local preferences:** Save the last entered Handle and per-VP Unrated selections in this browser's `localStorage`. Different Handles have separate settings; clearing site data may remove them.
 
-**Unrated selection note:** The VP table is the single place to mark sessions Unrated; contest IDs do not need manual entry. Selections persist in this browser but do **not** sync between browsers or devices. A mobile-friendly card view is available for narrow screens. An unexcluded VP is **not** guaranteed to have been eligible for an official Rated result.
+**Unrated selection note:** Mark individual sessions Unrated in the VP manager. It shows a table on wide screens and automatically uses cards on narrow screens. Selections are saved in the current browser. An unexcluded VP is **not** guaranteed to have been eligible for an official Rated result.
 
 ## Prediction methodology
 

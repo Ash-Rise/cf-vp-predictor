@@ -35,6 +35,12 @@ export default function({parentElement, data, setStateValue}) {
       window.localStorage.setItem(key, JSON.stringify(state.keys));
     } catch (_) {}
   }
+
+  const mobile = window.matchMedia('(max-width: 767px)');
+  const changeLayout = (event) => setStateValue('mobile', event.matches);
+  if (mobile.matches !== data.mobile) changeLayout(mobile);
+  mobile.addEventListener('change', changeLayout);
+  return () => mobile.removeEventListener('change', changeLayout);
 }
 """
 # Component source is JS, rendered as a tiny transparent area.
@@ -60,16 +66,19 @@ def parse_saved_value(raw, expected_handle, valid_keys):
 
 
 def sync_unrated_storage(handle, *, write=None):
-    """Return the component's browser-read payload, or an empty string.
+    """Return the saved Unrated payload and whether the browser is narrow.
 
     The optional write is {handle, keys, nonce}; caller must supply it only
     after a user-initiated checkbox edit. Existing Python session settings remain
     authoritative until a valid browser response arrives.
     """
+    key = "unrated_browser_storage"
+    mobile = st.session_state.get(key, {}).get("mobile", False)
     result = _COMPONENT(
-        data={"handle": handle, "write": write},
-        default={"read": ""},
-        key="unrated_browser_storage",
+        data={"handle": handle, "write": write, "mobile": mobile},
+        default={"read": "", "mobile": False},
+        key=key,
         on_read_change=lambda: None,
+        on_mobile_change=lambda: None,
     )
-    return result.read or ""
+    return result.read or "", result.mobile
