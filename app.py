@@ -42,6 +42,27 @@ TEXT = {
         "retry_failed": "Retry missing Rating data",
         "date": "Date (UTC)", "contest": "Contest", "rank": "Estimated rank",
         "excluded": "Unrated", "solved": "AC", "score": "Score",
+        "config": "Configuration", "loading_history": "Loading contest and submission history…",
+        "loading_vp": "Reconstructing VP results: {done}/{total}",
+        "loading_rating": "Loading official Rating changes: {done}/{total}",
+        "cache_cleared": "Personal data cache cleared. Analyze again to refresh.",
+        "loading_analysis": "Analyzing Codeforces history…",
+        "loading_error": "Could not load history: {error}",
+        "time_fallback": "{count} contests have no start time; Rating update times were used.",
+        "vp_unsupported": "Contest #{cid}: unsupported scoring mode",
+        "vp_failed": "Contest #{cid}: {error}",
+        "changes_missing": "Contest #{cid}: Rating changes unavailable",
+        "chart_title": "Rating history", "chart_axis": "Contest time (UTC)",
+        "legend_real_only": "REAL-only simulation", "legend_with_vp": "REAL + VP simulation",
+        "legend_official": "Official Rating",
+        "detail_select": "Select a VP session", "detail_delta": "Estimated Delta",
+        "detail_unavailable": "Unavailable", "detail_solved": "Solved problems",
+        "detail_empty": "No accepted submissions.", "detail_proxies": "Five nearest proxy participants",
+        "detail_profile": "Profile",
+        "detail_proxy_note": "The highest and lowest adjusted Deltas are removed before averaging when at least three proxies exist.",
+        "detail_no_proxies": "No proxy estimate (Unrated or missing rating data).",
+        "detail_penalty": "ICPC penalty: {minutes} min",
+        "mobile_mode": "Mobile-friendly cards", "card_link": "Open contest",
     },
     "中文": {
         "title": "Codeforces VP Rating 模拟器",
@@ -67,16 +88,37 @@ TEXT = {
         "retry_failed": "重试缺失的 Rating 数据",
         "date": "日期（UTC）", "contest": "比赛", "rank": "估计排名",
         "excluded": "Unrated", "solved": "AC", "score": "得分",
+        "config": "配置面板", "loading_history": "正在获取正式比赛与提交历史…",
+        "loading_vp": "正在重建 VP 成绩：{done}/{total}",
+        "loading_rating": "正在获取官方 Rating 数据：{done}/{total}",
+        "cache_cleared": "个人数据缓存已清除，请重新点击开始分析。",
+        "loading_analysis": "正在分析 Codeforces 历史记录…",
+        "loading_error": "获取历史数据失败：{error}",
+        "time_fallback": "有 {count} 场正式比赛缺少开始时间，已暂用 Rating 更新时间排序。",
+        "vp_unsupported": "比赛 #{cid}：不支持的计分规则",
+        "vp_failed": "比赛 #{cid}：{error}",
+        "changes_missing": "比赛 #{cid}：官方 Rating 变化数据暂不可用",
+        "chart_title": "Rating 走势", "chart_axis": "比赛时间（UTC）",
+        "legend_real_only": "仅正式比赛（模拟）", "legend_with_vp": "正式比赛 + VP（模拟）",
+        "legend_official": "官方实际 Rating",
+        "detail_select": "选择一场 VP", "detail_delta": "预估 Delta",
+        "detail_unavailable": "数据不可用", "detail_solved": "已通过的题目",
+        "detail_empty": "暂无通过的题目。", "detail_proxies": "五名最近邻参考选手",
+        "detail_profile": "选手主页",
+        "detail_proxy_note": "至少有三名参考选手时，去掉调整后 Delta 的最大值与最小值，再对其余值取平均。",
+        "detail_no_proxies": "暂无参考选手数据（Unrated 或官方历史数据缺失）。",
+        "detail_penalty": "ICPC 罚时：{minutes} 分钟",
+        "mobile_mode": "手机卡片视图", "card_link": "打开比赛",
     },
 }
 
-lang = st.sidebar.selectbox("Language / 语言", ["English", "中文"])
+lang = st.sidebar.selectbox("Language / 语言", ["中文", "English"])
 T = TEXT[lang]
 st.title(T["title"])
 st.caption(T["subtitle"])
 
 with st.sidebar:
-    st.header("Configuration" if lang == "English" else "配置面板")
+    st.header(T["config"])
     HANDLE = persistent_handle_input(T["handle"])
     show_official = st.checkbox(T["official_toggle"], value=True)
     show_unrated = st.checkbox(T["unrated_toggle"], value=True)
@@ -95,7 +137,7 @@ def load_analysis(handle):
     warnings = []
     blocking_issues = []
 
-    status.info("Fetching rated history and recent submissions...")
+    status.info(T["loading_history"])
     real_data = get_json("user.rating", {"handle": handle}) or []
     submissions = get_user_submissions(handle)
     progress.progress(8)
@@ -113,10 +155,7 @@ def load_analysis(handle):
 
     events, real_history, missing_start = build_official_events(real_data, start_map)
     if missing_start:
-        warnings.append(
-            f"{missing_start} official contests lack startTimeSeconds; "
-            "using their Rating update times as a fallback."
-        )
+        warnings.append(T["time_fallback"].format(count=missing_start))
 
     vp_sessions = [
         (cid, start, items)
@@ -129,7 +168,7 @@ def load_analysis(handle):
 
     total = len(by_contest)
     for n, (cid, sessions) in enumerate(by_contest.items(), 1):
-        status.info(f"Reconstructing VPs: contest {n}/{total}...")
+        status.info(T["loading_vp"].format(done=n, total=total))
         try:
             standings = get_json("contest.standings", {"contestId": cid})
             if not standings:
@@ -138,7 +177,7 @@ def load_analysis(handle):
             for start, items in sessions:
                 detail = reconstruct_vp_result(items, start, standings)
                 if detail is None:
-                    warning = f"VP contest {cid}: unsupported scoring format"
+                    warning = T["vp_unsupported"].format(cid=cid)
                     warnings.append(warning)
                     blocking_issues.append(warning)
                     continue
@@ -149,7 +188,7 @@ def load_analysis(handle):
                     "vp_details": detail,
                 })
         except (CFAPIError, KeyError, TypeError, ValueError) as exc:
-            warning = f"VP contest {cid}: {exc}"
+            warning = T["vp_failed"].format(cid=cid, error=exc)
             warnings.append(warning)
             blocking_issues.append(warning)
         progress.progress(14 + int(37 * n / max(total, 1)))
@@ -158,13 +197,13 @@ def load_analysis(handle):
     contest_ids = sorted({event["cid"] for event in events})
     changes_by_cid = {}
     for n, cid in enumerate(contest_ids, 1):
-        status.info(f"Loading historical Rating results: {n}/{len(contest_ids)}...")
+        status.info(T["loading_rating"].format(done=n, total=len(contest_ids)))
         try:
             changes_by_cid[cid] = get_json(
                 "contest.ratingChanges", {"contestId": cid}
             )
             if not changes_by_cid[cid]:
-                warnings.append(f"contest {cid}: official rating changes unavailable")
+                warnings.append(T["changes_missing"].format(cid=cid)
         except CFAPIError as exc:
             changes_by_cid[cid] = None
             warnings.append(str(exc))
@@ -191,14 +230,14 @@ def render_chart(with_vp, baseline, real_history, *, include_official, include_u
     if baseline:
         fig.add_trace(go.Scatter(
             x=[h["date"] for h in baseline], y=[h["rating"] for h in baseline],
-            mode="lines", name="Simulated REAL only",
+            mode="lines", name=T["legend_real_only"],
             line=dict(color="#8894A7", dash="dash", width=2),
-            hovertemplate="%{y} Rating<extra>REAL-only model</extra>",
+            hovertemplate="%{y} Rating<extra></extra>",
         ))
     if shown:
         fig.add_trace(go.Scatter(
             x=[h["date"] for h in shown], y=[h["rating"] for h in shown],
-            mode="lines", name="Simulated REAL + VP",
+            mode="lines", name=T["legend_with_vp"],
             line=dict(color="#343434", width=2),
             hoverinfo="skip",
         ))
@@ -221,13 +260,13 @@ def render_chart(with_vp, baseline, real_history, *, include_official, include_u
         fig.add_trace(go.Scatter(
             x=[h["date"] for h in real_history],
             y=[h["rating"] for h in real_history],
-            mode="lines+markers", name="Official Rating",
+            mode="lines+markers", name=T["legend_official"],
             line=dict(color="#4389e4", dash="dot", width=2),
             marker=dict(size=6),
         ))
     fig.update_layout(
-        title=f"Rating trajectory ({HANDLE})",
-        yaxis_title="Rating", xaxis_title="Contest start / official update time (UTC)",
+        title=f"{T['chart_title']} ({HANDLE})",
+        yaxis_title="Rating", xaxis_title=T["chart_axis"],
         legend=dict(orientation="h", y=1.12, x=0),
         height=540, hovermode="closest",
     )
@@ -237,7 +276,7 @@ def render_chart(with_vp, baseline, real_history, *, include_official, include_u
 if clear_clicked:
     clear_personal_cache(HANDLE.strip())
     st.session_state.pop("analysis_data", None)
-    st.success("Personal API cache cleared. Click Analyze to reload.")
+    st.success(T["cache_cleared"])
 
 if run_clicked:
     clean_handle = HANDLE.strip()
@@ -245,10 +284,10 @@ if run_clicked:
         st.warning(T["no_data"])
     else:
         try:
-            with st.spinner("Loading Codeforces history..."):
+            with st.spinner(T["loading_analysis"]):
                 st.session_state["analysis_data"] = load_analysis(clean_handle)
         except (CFAPIError, ValueError, KeyError) as exc:
-            st.error(f"Cannot load Codeforces history: {exc}")
+            st.error(T["loading_error"].format(error=exc))
 
 raw = st.session_state.get("analysis_data")
 if not raw or raw["handle"].casefold() != HANDLE.strip().casefold():
