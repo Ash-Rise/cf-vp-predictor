@@ -61,6 +61,8 @@ def estimate_delta(internal_rating, rank, rating_changes):
         true_delta = row["newRating"] - row["oldRating"]
         rank_correction = 1 if rank < row["rank"] else -1 if rank > row["rank"] else 0
         proxies.append({
+            "Handle": row.get("handle", ""),
+            "Profile": f"https://codeforces.com/profile/{row['handle']}" if row.get("handle") else "",
             "Pre-contest Rating": row["oldRating"],
             "Rank": row["rank"],
             "Official Delta": true_delta,
