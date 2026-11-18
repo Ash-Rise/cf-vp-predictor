@@ -337,25 +337,54 @@ if vp_events:
             T["contest"]: event["name"],
             T["date"]: _date(event["ts"]),
             T["rank"]: event["rank"],
-            "Est. Δ": preview_by_key.get(event["key"], {}).get("model_delta"),
+            T["detail_delta"]: preview_by_key.get(event["key"], {}).get("model_delta"),
             T["solved"]: detail["solved"],
             "Link": f"https://codeforces.com/contest/{event['cid']}",
         })
-    table = pd.DataFrame(editor_rows)
-    edited = st.data_editor(
-        table, width="stretch", hide_index=True, num_rows="fixed",
-        column_config={
-            "Session": None,
-            T["excluded"]: st.column_config.CheckboxColumn(T["excluded"]),
-            "Link": st.column_config.LinkColumn("Codeforces", display_text="Open"),
-        },
-        disabled=[T["contest"], T["date"], T["rank"], "Est. Δ", T["solved"], "Link"],
-        key=f"vp_editor_{handle_key}_{st.session_state.setdefault('vp_editor_epochs', {}).get(handle_key, 0)}",
-    )
-    selected_keys = {
-        row["Session"] for _, row in edited.iterrows()
-        if bool(row[T["excluded"]])
-    }
+    # The table is efficient on desktop; stacked cards avoid horizontal scroll
+    # on narrow mobile screens. Both views modify the same per-session settings.
+    card_view = st.toggle(T["mobile_mode"], value=False, key=f"vp_card_mode_{handle_key}")
+    epochs = st.session_state.setdefault("vp_editor_epochs", {})
+    previous_modes = st.session_state.setdefault("vp_previous_modes", {})
+    if handle_key in previous_modes and previous_modes[handle_key] != card_view:
+        epochs[handle_key] = epochs.get(handle_key, 0) + 1
+    previous_modes[handle_key] = card_view
+    epoch = epochs.get(handle_key, 0)
+    if card_view:
+        selected_keys = set()
+        for event in vp_events:
+            detail = event["vp_details"]
+            estimate = preview_by_key.get(event["key"], {}).get("model_delta")
+            with st.container(border=True):
+                st.markdown(f"**{event['name']}**")
+                st.caption(f"{_date(event['ts'])} · #{event['cid']}")
+                st.write(
+                    f"{T['rank']}: {event['rank']}　"
+                    f"{T['solved']}: {detail['solved']}　"
+                    f"{T['detail_delta']}: {estimate if estimate is not None else '—'}"
+                )
+                if st.checkbox(
+                    T["excluded"], value=event["key"] in existing,
+                    key=f"vp_card_{handle_key}_{epoch}_{event['key']}"
+                ):
+                    selected_keys.add(event["key"])
+                st.link_button(T["card_link"], f"https://codeforces.com/contest/{event['cid']}")
+    else:
+        table = pd.DataFrame(editor_rows)
+        edited = st.data_editor(
+            table, width="stretch", hide_index=True, num_rows="fixed",
+            column_config={
+                "Session": None,
+                T["excluded"]: st.column_config.CheckboxColumn(T["excluded"]),
+                "Link": st.column_config.LinkColumn("Codeforces", display_text=T["card_link"]),
+            },
+            disabled=[T["contest"], T["date"], T["rank"], T["detail_delta"], T["solved"], "Link"],
+            key=f"vp_editor_{handle_key}_{epoch}",
+        )
+        selected_keys = {
+            row["Session"] for _, row in edited.iterrows()
+            if bool(row[T["excluded"]])
+        }
     if selected_keys != set(existing):
         override_store[handle_key] = selected_keys
         if handle_key in hydrated:
