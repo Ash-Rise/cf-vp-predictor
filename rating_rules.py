@@ -54,18 +54,3 @@ def display_simulation_rating(internal_rating, rated_contests, modern_policy):
     if rated_contests == 0:
         return 0
     return visible_rating(internal_rating, rated_contests, modern_policy)
-
-
-def parse_unrated_vp_ids(text):
-    """Parse an explicit user override; never infer a cutoff from other entrants."""
-    if not text.strip():
-        return frozenset()
-    result = set()
-    for token in text.replace("，", ",").split(","):
-        token = token.strip()
-        if not token:
-            continue
-        if not token.isascii() or not token.isdigit():
-            raise ValueError(f"Invalid contest ID: {token}")
-        result.add(int(token))
-    return frozenset(result)
