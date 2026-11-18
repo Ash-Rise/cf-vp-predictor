@@ -9,7 +9,7 @@ import json
 import streamlit as st
 
 _COMPONENT_JS = r"""
-export default function({data, setStateValue}) {
+export default function({parentElement, data, setStateValue}) {
   const handle = (data.handle || '').trim().toLowerCase();
   const key = 'cf-vp-predictor:unrated:' + handle;
   const state = data.write;
@@ -71,6 +71,4 @@ def sync_unrated_storage(handle, selected, *, write=None):
         key="unrated_browser_storage",
         on_read_change=lambda: None,
     )
-    return parse_saved_value(
-        result.read, handle, set(selected)
-    ) if False else (result.read or "")
+    return result.read or ""
