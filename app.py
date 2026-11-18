@@ -586,7 +586,9 @@ def plot_plotly(sim_history, real_history, show_real, local_t):
         st.plotly_chart(fig, use_container_width=True)
 
 if st.button(T["btn_start"], type="primary"):
-    
+    if not HANDLE:
+        st.warning(T["warn_no_data"])
+        st.stop()
     if HANDLE == "ALL_HISTORY":
         st.info("Downloading all contest data (ID 1 -> Last)...")
         contests_data = get_json("https://codeforces.com/api/contest.list", {"gym": "false"}, use_cache=False)
@@ -617,11 +619,22 @@ if st.button(T["btn_start"], type="primary"):
 
     else:
         with st.spinner(T["msg_init"]):
-            sim_data, real_data = get_processed_data(HANDLE, INITIAL_RATING)
+            sim_data, real_data = get_processed_data(
+                HANDLE, INITIAL_RATING, NEWCOMER_MODE, MANUAL_UNRATED_IDS
+            )
             st.session_state['sim_data'] = sim_data
             st.session_state['real_data'] = real_data
+            st.session_state['analysis_config'] = (
+                HANDLE.casefold(), INITIAL_RATING, NEWCOMER_MODE, MANUAL_UNRATED_IDS
+            )
 
-if 'sim_data' in st.session_state and HANDLE != "ALL_HISTORY":
+if (
+    'sim_data' in st.session_state
+    and HANDLE != "ALL_HISTORY"
+    and st.session_state.get('analysis_config') == (
+        HANDLE.casefold(), INITIAL_RATING, NEWCOMER_MODE, MANUAL_UNRATED_IDS
+    )
+):
 
     sim_data = st.session_state['sim_data']
     real_data = st.session_state['real_data']
@@ -635,7 +648,9 @@ if 'sim_data' in st.session_state and HANDLE != "ALL_HISTORY":
 
         last_sim_rating = sim_data[-1]['rating']
         last_sim_delta = sim_data[-1]['delta']
-        last_real_rating = real_data[-1]['rating'] if real_data else INITIAL_RATING
+        last_real_rating = real_data[-1]['rating'] if real_data else visible_rating(
+            INITIAL_RATING, 0, NEWCOMER_MODE
+        )
         gap = last_sim_rating - last_real_rating
         
         col1, col2, col3 = st.columns(3)
@@ -644,9 +659,11 @@ if 'sim_data' in st.session_state and HANDLE != "ALL_HISTORY":
         col3.metric(T["metric_gap"], f"{gap:+d}", delta_color="normal")
         
         st.divider()
+        if vp_count > 0:
+            st.caption(T["unrated_notice"])
 
         plot_sim_data = sim_data
         if not SHOW_UNRATED:
-            plot_sim_data = [d for d in sim_data if d['type'] == 'INIT' or "(Unrated)" not in d['name']]
+            plot_sim_data = [d for d in sim_data if not d.get('unrated', False)]
 
         plot_plotly(plot_sim_data, real_data, SHOW_REAL_CURVE, T)
