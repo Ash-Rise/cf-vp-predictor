@@ -50,7 +50,7 @@ You can access the tool online at:
 
 **Usage Notes**
 
-* **Initial Rating**: Set your starting rating before the simulation begins.
+* **Initial Rating**: The starting Rating is fixed to 100 in regular mode; there is no editable input. New-account mode instead starts from Codeforces' internal 1400 baseline (initial displayed rating 0).
 * **Data Caching**: Contest data is serialized and saved in the `data/` directory to enable near-instant loading during subsequent visits.
 * **Clear Cache**: Use the "Clear Cache" button in the sidebar to refresh outdated data or reset storage.
 
