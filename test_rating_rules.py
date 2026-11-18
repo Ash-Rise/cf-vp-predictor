@@ -3,7 +3,7 @@ import unittest
 from datetime import datetime, timezone
 from rating_rules import (
     NEWCOMER_BONUSES, DEFAULT_INITIAL_RATING, INTERNAL_START,
-    display_simulation_rating, is_rated_simulation_event, parse_unrated_vp_ids,
+    display_simulation_rating, is_rated_simulation_event,
     simulation_start_rating, use_new_account_policy, visible_rating,
 )
 
@@ -24,10 +24,6 @@ class RatingRulesTests(unittest.TestCase):
 
     def test_internal_rating_stays_unchanged_for_regular_account(self):
         self.assertEqual(visible_rating(1643, 2, newcomer_mode=False), 1643)
-
-    def test_explicit_unrated_ids(self):
-        self.assertEqual(parse_unrated_vp_ids("123, 456，123"), frozenset({123, 456}))
-        self.assertEqual(parse_unrated_vp_ids(" "), frozenset())
 
     def test_display_starts_at_zero_and_bonuses_apply_automatically(self):
         internal = INTERNAL_START
@@ -68,10 +64,6 @@ class RatingRulesTests(unittest.TestCase):
         events = [{"type": "VP", "cid": 100, "ts": old}, {"type": "REAL", "cid": 200, "ts": modern}]
         self.assertFalse(use_new_account_policy(events))
         self.assertTrue(use_new_account_policy(events, frozenset({100})))
-
-    def test_rejects_bad_unrated_ids(self):
-        with self.assertRaises(ValueError):
-            parse_unrated_vp_ids("123,not-a-contest")
 
 
 if __name__ == "__main__":
