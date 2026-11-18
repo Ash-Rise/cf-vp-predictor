@@ -17,7 +17,7 @@ class CacheTests(unittest.TestCase):
         self.tempdir.cleanup()
 
     def test_rating_changes_are_cached_and_shared(self):
-        rows = [{"rank": 1, "oldRating": 1400, "newRating": 1450}]
+        rows = [{"rank": 1, "oldRating": 1400, "newRating": 1450, "handle": "example"}]
         with patch.object(cf_api, "_remote", return_value=rows) as remote:
             self.assertEqual(
                 cf_api.get_json("contest.ratingChanges", {"contestId": 42}),
