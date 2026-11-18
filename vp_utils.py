@@ -65,11 +65,11 @@ def _wa_penalty_minutes(rows):
     return 10 if votes[10] > votes[20] else 20
 
 
-def estimate_vp_rank(submissions, start, standings):
-    """Return an estimated official rank, or None for unsupported scoring.
+def reconstruct_vp_result(submissions, start, standings):
+    """Return estimated rank, points/penalty, solved problems and submission details.
 
-    Uses only submissions inside this session's contest duration. This still
-    cannot perfectly reconstruct hacks, partial scoring, or unofficial entries.
+    This is a simulation against the historical official ranklist, not an
+    official Codeforces result. Hacks and some special rules are not modeled.
     """
     contest = standings["contest"]
     scoring = contest.get("type", "CF")
@@ -82,12 +82,11 @@ def estimate_vp_rank(submissions, start, standings):
 
     accepted = {}
     wrong = defaultdict(int)
-    for sub in sorted(submissions, key=lambda s: s.get("creationTimeSeconds", 0)):
+    for sub in sorted(submissions, key=lambda row: row.get("creationTimeSeconds", 0)):
         ts = sub.get("creationTimeSeconds")
         if not isinstance(ts, int) or not (0 <= ts - start < duration_s):
             continue
-        problem = sub.get("problem") or {}
-        pid = problem.get("index")
+        pid = (sub.get("problem") or {}).get("index")
         if not pid or pid in accepted:
             continue
         verdict = sub.get("verdict")
@@ -96,19 +95,37 @@ def estimate_vp_rank(submissions, start, standings):
         elif verdict not in (None, "COMPILATION_ERROR", "TESTING", "SKIPPED"):
             wrong[pid] += 1
 
+    penalty = None
     if scoring == "ICPC":
-        pts = len(accepted)
-        per_wrong = _wa_penalty_minutes(standings["rows"])
-        penalty = sum(t + w * per_wrong for t, w in accepted.values())
+        points = len(accepted)
+        penalty_per_wa = _wa_penalty_minutes(standings["rows"])
+        penalty = sum(mins + attempts * penalty_per_wa for mins, attempts in accepted.values())
         better = sum(
-            row["points"] > pts or (row["points"] == pts and row["penalty"] < penalty)
+            row["points"] > points or
+            (row["points"] == points and row.get("penalty", 0) < penalty)
             for row in standings["rows"]
         )
     else:
-        full_points = {p["index"]: p.get("points", 0) for p in standings["problems"]}
-        pts = sum(
-            max(0.3 * full_points[pid], full_points[pid] - floor(120 * full_points[pid] * t / (250 * duration_m)) - 50 * w)
-            for pid, (t, w) in accepted.items() if full_points.get(pid, 0) > 0
+        full = {p["index"]: p.get("points", 0) for p in standings["problems"]}
+        points = sum(
+            max(0.3 * full[pid], full[pid] -
+                floor(120 * full[pid] * mins / (250 * duration_m)) - 50 * attempts)
+            for pid, (mins, attempts) in accepted.items()
+            if full.get(pid, 0) > 0
         )
-        better = sum(row["points"] > pts for row in standings["rows"])
-    return better + 1
+        better = sum(row["points"] > points for row in standings["rows"])
+
+    return {
+        "rank": better + 1, "score": round(points, 2),
+        "solved": len(accepted), "penalty": penalty, "scoring": scoring,
+        "problems": [
+            {"problem": pid, "minute": mins, "wrong_attempts": attempts}
+            for pid, (mins, attempts) in sorted(accepted.items())
+        ],
+    }
+
+
+def estimate_vp_rank(submissions, start, standings):
+    """Backwards-compatible rank-only interface used by existing tests."""
+    details = reconstruct_vp_result(submissions, start, standings)
+    return details["rank"] if details is not None else None
