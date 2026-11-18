@@ -78,7 +78,3 @@ GitHub Actions installs the real app dependencies, checks module imports, and ru
 ## Credits
 
 Forked from [vividStareium/cf-vp-predictor](https://github.com/vividStareium/cf-vp-predictor). The original approach of estimating Rating Delta from nearby historical competitors is preserved, while data handling, interactive controls, and prediction explanations have been expanded.
-
----
-
-[阅读中文版文档](README.md)
