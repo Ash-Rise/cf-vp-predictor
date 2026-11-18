@@ -112,9 +112,12 @@ def simulate(events, changes_by_cid, excluded_vp_keys=frozenset(), *, include_vp
             else estimate_delta(internal, event["rank"], changes) if changes else (None, [])
         )
         if predicted is None:
+            # A missing Rating change is unknown, not a genuine zero Delta.
+            # Do not advance the timeline: all later modeled Ratings depend
+            # on the missing input and would otherwise be misleading.
             unavailable.append(event["key"])
-            predicted = 0
-        elif not is_unrated:
+            break
+        if not is_unrated:
             internal += predicted
             counted += 1
 
