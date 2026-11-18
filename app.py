@@ -12,7 +12,12 @@ import threading
 import shutil
 from vp_utils import group_vp_sessions, estimate_vp_rank
 from persistent_handle import persistent_handle_input
-from rating_rules import visible_rating, parse_unrated_vp_ids, DEFAULT_INITIAL_RATING, INTERNAL_START
+from rating_rules import (
+    parse_unrated_vp_ids,
+    use_new_account_policy,
+    simulation_start_rating,
+    display_simulation_rating,
+)
 
 api_lock = threading.Semaphore(2)
 file_lock = threading.Lock()
@@ -25,10 +30,8 @@ TRANSLATIONS = {
         "subtitle": "Visualize your potential rating trajectory by integrating Virtual Participation (VP) history.",
         "sidebar_header": "Configuration",
         "input_handle": "CF Handle",
-        "newcomer_mode": "New account (first six rated contests)",
-        "newcomer_help": "Use Codeforces' 2020+ newcomer rule: internal 1400, displayed 0 initially, then bonuses of 500/350/250/150/100/50. Disable when simulating from an established rating or old scoring rules.",
-        "manual_unrated": "Unrated VP contest IDs (optional)",
-        "manual_unrated_help": "Comma-separated contest IDs you know would NOT count toward Rating. These VP rounds get Delta 0. Public APIs do not expose universal historical eligibility cutoffs.",
+        "manual_unrated": "Unrated VP contest IDs (multiple allowed)",
+        "manual_unrated_help": "Enter any number of contest IDs, separated by commas (e.g. 1084, 1200, 1350). Each specified VP contest receives Delta 0. Public APIs do not expose universal historical eligibility cutoffs.",
         "bad_unrated": "Invalid unrated VP contest IDs: {error}",
         "unrated_notice": "VP Rated eligibility cannot always be verified from public data. Only VP contest IDs you explicitly exclude are treated as Unrated; other VP deltas are estimates.",
 
@@ -63,10 +66,8 @@ TRANSLATIONS = {
         "subtitle": "通过整合虚拟参赛 (VP) 记录，可视化您的潜在 Rating 走势。",
         "sidebar_header": "配置面板",
         "input_handle": "输入 CF Handle",
-        "newcomer_mode": "新账号模式（前六场 Rated）",
-        "newcomer_help": "按 Codeforces 2020 年后新账号规则模拟：计算起始分 1400、显示起始分 0，前六场依次增加 500/350/250/150/100/50 的显示补偿。已有 Rating 开始模拟或旧赛制请关闭。",
-        "manual_unrated": "明确为 Unrated 的 VP 比赛 ID（可选）",
-        "manual_unrated_help": "使用英文或中文逗号分隔比赛 ID。指定的 VP 场次 Delta 为 0。公开 API 无法对所有历史比赛可靠推断 Rated 上限。",
+        "manual_unrated": "Unrated VP 比赛 ID（支持多场，逗号分隔）",
+        "manual_unrated_help": "支持一次指定多场，例如 1084, 1200, 1350（中英文逗号均可）。这些比赛的所有 VP Delta 均为 0。公开 API 无法对全部历史比赛准确判断 Rated 资格。",
         "bad_unrated": "无效的 VP 比赛 ID：{error}",
         "unrated_notice": "公开 API 不一定能确定某次 VP 是否具备 Rated 资格。仅对你手动指定的 Unrated VP 赋予 Delta 0，其余 VP 仍是估计结果。",
 
@@ -109,15 +110,9 @@ st.sidebar.header(T["sidebar_header"])
 
 with st.sidebar:
     HANDLE = persistent_handle_input(T["input_handle"])
-NEWCOMER_MODE = st.sidebar.checkbox(
-    T["newcomer_mode"], value=False, help=T["newcomer_help"]
-)
-# Fixed starting point: regular simulations start at 100, while the
-# optional newcomer calculation uses Codeforces' internal 1400 baseline.
-# Neither mode exposes an editable starting-Rating input.
-INITIAL_RATING = INTERNAL_START if NEWCOMER_MODE else DEFAULT_INITIAL_RATING
 UNRATED_IDS_TEXT = st.sidebar.text_input(
-    T["manual_unrated"], value="", help=T["manual_unrated_help"]
+    T["manual_unrated"], value="", placeholder="1084, 1200, 1350",
+    help=T["manual_unrated_help"]
 )
 try:
     MANUAL_UNRATED_IDS = parse_unrated_vp_ids(UNRATED_IDS_TEXT)
@@ -329,7 +324,7 @@ def process_batches(task_list, worker_func, max_workers=10, update_callback=None
     return results
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_processed_data(handle, init_rating, newcomer_mode, unrated_vp_ids):
+def get_processed_data(handle, unrated_vp_ids):
     progress_bar = st.progress(0)
     status_text = st.empty()
     
@@ -410,21 +405,25 @@ def get_processed_data(handle, init_rating, newcomer_mode, unrated_vp_ids):
     status_text.text("Calculating rating simulation...")
     progress_bar.progress(98)
     
-    curr = init_rating  # internal Rating, not the newcomer display Rating
+    # Automatic rules: modern first-time participants use hidden 1400.
+    # The displayed curve always begins at 0; only eligible rated events
+    # count toward the six beginner bonuses.
+    modern_policy = use_new_account_policy(events, unrated_vp_ids)
+    curr = simulation_start_rating(events, unrated_vp_ids)
     rated_count = 0
     sim_history = []
 
     if events:
         sim_history.append({
             "date": datetime.fromtimestamp(events[0]['ts'] - 86400),
-            "rating": visible_rating(curr, rated_count, newcomer_mode),
+            "rating": display_simulation_rating(curr, rated_count, modern_policy),
             "type": "INIT", "name": "Start", "rank": 0, "delta": 0
         })
 
     for event in events:
         cid = event['cid']
         cname = event['name']
-        before_display = visible_rating(curr, rated_count, newcomer_mode)
+        before_display = display_simulation_rating(curr, rated_count, modern_policy)
 
         # user.rating contains only rated events, so REAL is always rated.
         # VP eligibility cannot always be inferred from public API data.
@@ -490,7 +489,7 @@ def get_processed_data(handle, init_rating, newcomer_mode, unrated_vp_ids):
         
         curr += delta_int
         rated_count += 1
-        after_display = visible_rating(curr, rated_count, newcomer_mode)
+        after_display = display_simulation_rating(curr, rated_count, modern_policy)
         sim_history.append({
             "date": datetime.fromtimestamp(event['ts']),
             "rating": after_display, "type": event['type'], "name": cname,
@@ -618,20 +617,18 @@ if st.button(T["btn_start"], type="primary", disabled=not UNRATED_IDS_VALID):
 
     else:
         with st.spinner(T["msg_init"]):
-            sim_data, real_data = get_processed_data(
-                HANDLE, INITIAL_RATING, NEWCOMER_MODE, MANUAL_UNRATED_IDS
-            )
+            sim_data, real_data = get_processed_data(HANDLE, MANUAL_UNRATED_IDS)
             st.session_state['sim_data'] = sim_data
             st.session_state['real_data'] = real_data
             st.session_state['analysis_config'] = (
-                HANDLE.casefold(), INITIAL_RATING, NEWCOMER_MODE, MANUAL_UNRATED_IDS
+                HANDLE.casefold(), MANUAL_UNRATED_IDS
             )
 
 if (
     'sim_data' in st.session_state
     and HANDLE != "ALL_HISTORY"
     and st.session_state.get('analysis_config') == (
-        HANDLE.casefold(), INITIAL_RATING, NEWCOMER_MODE, MANUAL_UNRATED_IDS
+        HANDLE.casefold(), MANUAL_UNRATED_IDS
     )
 ):
 
@@ -647,9 +644,7 @@ if (
 
         last_sim_rating = sim_data[-1]['rating']
         last_sim_delta = sim_data[-1]['delta']
-        last_real_rating = real_data[-1]['rating'] if real_data else visible_rating(
-            INITIAL_RATING, 0, NEWCOMER_MODE
-        )
+        last_real_rating = real_data[-1]['rating'] if real_data else 0
         gap = last_sim_rating - last_real_rating
         
         col1, col2, col3 = st.columns(3)
