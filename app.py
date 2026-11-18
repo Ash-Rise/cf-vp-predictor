@@ -11,6 +11,8 @@ import gc
 import threading
 import shutil
 from vp_utils import group_vp_sessions, estimate_vp_rank
+from persistent_handle import persistent_handle_input
+from rating_rules import visible_rating, parse_unrated_vp_ids
 
 api_lock = threading.Semaphore(2)
 file_lock = threading.Lock()
@@ -24,6 +26,13 @@ TRANSLATIONS = {
         "sidebar_header": "Configuration",
         "input_handle": "CF Handle",
         "input_init_rating": "Initial Rating",
+        "newcomer_mode": "New account (first six rated contests)",
+        "newcomer_help": "Use Codeforces' 2020+ newcomer rule: internal 1400, displayed 0 initially, then bonuses of 500/350/250/150/100/50. Disable when simulating from an established rating or old scoring rules.",
+        "manual_unrated": "Unrated VP contest IDs (optional)",
+        "manual_unrated_help": "Comma-separated contest IDs you know would NOT count toward Rating. These VP rounds get Delta 0. Public APIs do not expose universal historical eligibility cutoffs.",
+        "bad_unrated": "Invalid unrated VP contest IDs: {error}",
+        "unrated_notice": "VP Rated eligibility cannot always be verified from public data. Only VP contest IDs you explicitly exclude are treated as Unrated; other VP deltas are estimates.",
+
         "note": "**Note:** When analyzing a specific Handle for the first time, the system needs to download its historical data. This may take a few minutes. Be patient pls.",
         "checkbox_show_real": "Show Official Rating Comparison",
         "checkbox_help": "Overlays your actual official rating curve (dashed blue line) for comparison.",
@@ -56,6 +65,13 @@ TRANSLATIONS = {
         "sidebar_header": "配置面板",
         "input_handle": "输入 CF Handle",
         "input_init_rating": "初始 Rating",
+        "newcomer_mode": "新账号模式（前六场 Rated）",
+        "newcomer_help": "按 Codeforces 2020 年后新账号规则模拟：计算起始分 1400、显示起始分 0，前六场依次增加 500/350/250/150/100/50 的显示补偿。已有 Rating 开始模拟或旧赛制请关闭。",
+        "manual_unrated": "明确为 Unrated 的 VP 比赛 ID（可选）",
+        "manual_unrated_help": "使用英文或中文逗号分隔比赛 ID。指定的 VP 场次 Delta 为 0。公开 API 无法对所有历史比赛可靠推断 Rated 上限。",
+        "bad_unrated": "无效的 VP 比赛 ID：{error}",
+        "unrated_notice": "公开 API 不一定能确定某次 VP 是否具备 Rated 资格。仅对你手动指定的 Unrated VP 赋予 Delta 0，其余 VP 仍是估计结果。",
+
         "note": "**提示：** 每个 Handle 首次进行分析时，都需要下载该用户的历史比赛数据，耗时可能较长（几分钟），请耐心等待。",
         "checkbox_show_real": "显示官方 Rating 对比",
         "checkbox_help": "勾选后，将在图中叠加显示你实际的官方 CF Rating 曲线（蓝色虚线）以作对比。",
@@ -93,8 +109,24 @@ st.markdown(T["subtitle"])
 
 st.sidebar.header(T["sidebar_header"])
 
-HANDLE = st.sidebar.text_input(T["input_handle"], value="vivid_stareium")
-INITIAL_RATING = st.sidebar.number_input(T["input_init_rating"], value=1400, step=100)
+with st.sidebar:
+    HANDLE = persistent_handle_input(T["input_handle"])
+NEWCOMER_MODE = st.sidebar.checkbox(
+    T["newcomer_mode"], value=False, help=T["newcomer_help"]
+)
+INITIAL_RATING = st.sidebar.number_input(
+    T["input_init_rating"], value=1400, step=100, disabled=NEWCOMER_MODE
+)
+if NEWCOMER_MODE:
+    INITIAL_RATING = 1400
+UNRATED_IDS_TEXT = st.sidebar.text_input(
+    T["manual_unrated"], value="", help=T["manual_unrated_help"]
+)
+try:
+    MANUAL_UNRATED_IDS = parse_unrated_vp_ids(UNRATED_IDS_TEXT)
+except ValueError as exc:
+    st.sidebar.error(T["bad_unrated"].format(error=exc))
+    MANUAL_UNRATED_IDS = frozenset()
 
 st.sidebar.info(T["note"])
 
