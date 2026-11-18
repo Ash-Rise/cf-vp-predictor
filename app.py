@@ -376,7 +376,12 @@ if vp_events:
             st.write("No accepted submissions.")
     st.markdown("**Five nearest proxies / 五名参考选手**")
     if item and item["proxies"]:
-        st.dataframe(pd.DataFrame(item["proxies"]), hide_index=True, width="stretch")
+        st.dataframe(
+            pd.DataFrame(item["proxies"]), hide_index=True, width="stretch",
+            column_config={"Profile": st.column_config.LinkColumn(
+                "Codeforces profile", display_text="Open"
+            )},
+        )
         st.caption("Proxy rows come from the original contest. The model trims the largest "
                    "and smallest adjusted Deltas before averaging (when at least 3 exist).")
     else:
