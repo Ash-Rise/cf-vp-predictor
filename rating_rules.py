@@ -22,34 +22,39 @@ def visible_rating(internal_rating, rated_contests, newcomer_mode=False):
 
 
 
-def use_new_account_policy(events):
-    """Choose policy automatically from the earliest chronological rated event.
+def is_rated_simulation_event(event, excluded_vp_ids):
+    """Manual VP exclusions do not count; actual official records always do."""
+    return event["type"] == "REAL" or event["cid"] not in excluded_vp_ids
 
-    The modern policy is only applied to simulated histories starting in/after
-    June 2020; older historical accounts retain the legacy approximation.
+
+def use_new_account_policy(events, excluded_vp_ids=frozenset()):
+    """Infer the modern rule from the first *eligible* event in the simulation.
+
+    This is a conservative historical date guard, not a full recreation of
+    Codeforces account policy at the May 2020 transition.
     """
-    return bool(events) and min(e["ts"] for e in events) >= NEW_ACCOUNT_POLICY_CUTOFF_TS
+    first = next(
+        (e for e in sorted(events, key=lambda row: row["ts"])
+         if is_rated_simulation_event(e, excluded_vp_ids)),
+        None,
+    )
+    return first is not None and first["ts"] >= NEW_ACCOUNT_POLICY_CUTOFF_TS
 
 
-def simulation_start_rating(events):
-    """Start modern accounts internally at 1400 while preserving a 100-point chart anchor."""
-    return INTERNAL_START if use_new_account_policy(events) else DEFAULT_INITIAL_RATING
+def simulation_start_rating(events, excluded_vp_ids=frozenset()):
+    """Modern simulated newcomers start internally at 1400; legacy at 100."""
+    return (
+        INTERNAL_START if use_new_account_policy(events, excluded_vp_ids)
+        else DEFAULT_INITIAL_RATING
+    )
 
 
 def display_simulation_rating(internal_rating, rated_contests, modern_policy):
-    """Show the requested 100-point graph anchor, then official-style newcomer display values.
-
-    Codeforces itself starts at displayed 0 (not 100); the first computed
-    post-contest value is still 500 + estimated internal Delta.
-    """
-    if modern_policy and rated_contests == 0:
-        return DEFAULT_INITIAL_RATING
+    """Show 0 before the first rated round, then the modeled visible Rating."""
+    if rated_contests == 0:
+        return 0
     return visible_rating(internal_rating, rated_contests, modern_policy)
 
-
-def is_rated_simulation_event(event, excluded_vp_ids):
-    """Manually excluded VPs are not rated; REAL events always are."""
-    return event["type"] == "REAL" or event["cid"] not in excluded_vp_ids
 
 def parse_unrated_vp_ids(text):
     """Parse an explicit user override; never infer a cutoff from other entrants."""
