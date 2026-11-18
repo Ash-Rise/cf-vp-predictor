@@ -63,8 +63,19 @@ class CoreTests(unittest.TestCase):
         event = contest_event("REAL", 102, 1710000000, 88)
         history, missing = simulate([event], {102: None})
         self.assertEqual(missing, [event["key"]])
-        self.assertTrue(history[-1]["unavailable"])
-        self.assertEqual(history[-1]["delta"], 0)
+        self.assertEqual([row["type"] for row in history], ["INIT"])
+        self.assertNotIn("rating", {k: v for k, v in history[-1].items() if k == "estimated_final"})
+
+    def test_missing_middle_round_stops_before_later_rounds(self):
+        ts = 1710000000
+        events = [
+            contest_event("REAL", 10, ts, 100),
+            contest_event("VP", 11, ts + 100, 75),
+            contest_event("REAL", 12, ts + 200, 90),
+        ]
+        history, missing = simulate(events, {10: proxies(), 11: None, 12: proxies()})
+        self.assertEqual(missing, [events[1]["key"]])
+        self.assertEqual([row["cid"] for row in history[1:]], [10])
 
     def test_official_time_is_contest_start_not_rating_update(self):
         records = [{
