@@ -330,7 +330,7 @@ def process_batches(task_list, worker_func, max_workers=10, update_callback=None
     return results
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_processed_data(handle, init_rating):
+def get_processed_data(handle, init_rating, newcomer_mode, unrated_vp_ids):
     progress_bar = st.progress(0)
     status_text = st.empty()
     
@@ -411,19 +411,32 @@ def get_processed_data(handle, init_rating):
     status_text.text("Calculating rating simulation...")
     progress_bar.progress(98)
     
-    curr = init_rating
+    curr = init_rating  # internal Rating, not the newcomer display Rating
+    rated_count = 0
     sim_history = []
-    
+
     if events:
         sim_history.append({
             "date": datetime.fromtimestamp(events[0]['ts'] - 86400),
-            "rating": curr, "type": "INIT", "name": "Start", "rank": 0, "delta": 0
+            "rating": visible_rating(curr, rated_count, newcomer_mode),
+            "type": "INIT", "name": "Start", "rank": 0, "delta": 0
         })
 
     for event in events:
         cid = event['cid']
         cname = event['name']
-        
+        before_display = visible_rating(curr, rated_count, newcomer_mode)
+
+        # user.rating contains only rated events, so REAL is always rated.
+        # VP eligibility cannot always be inferred from public API data.
+        if event['type'] == 'VP' and cid in unrated_vp_ids:
+            sim_history.append({
+                "date": datetime.fromtimestamp(event['ts']),
+                "rating": before_display, "type": "VP", "unrated": True,
+                "name": f"{cname} (Unrated)", "rank": event['rank'], "delta": 0
+            })
+            continue
+
         changes = get_json("https://codeforces.com/api/contest.ratingChanges", {"contestId": cid}, use_cache=True)
         
         if not changes:
@@ -444,24 +457,8 @@ def get_processed_data(handle, init_rating):
 
         if not changes: continue
 
-        active_changes = [p for p in changes if p['newRating'] != p['oldRating']]
-        
-        max_official_rating = 0
-        if active_changes:
-            max_official_rating = max(p['oldRating'] for p in active_changes)
-        elif changes:
-            max_official_rating = max(p['oldRating'] for p in changes)
-        
-        threshold = int((max_official_rating + 100) / 100) * 100
-            
-        if curr >= threshold:
-            sim_history.append({
-                "date": datetime.fromtimestamp(event['ts']),
-                "rating": curr, "type": event['type'], "name": f"{cname} (Unrated)",
-                "rank": event['rank'], "delta": 0
-            })
-            continue 
-
+        # The highest-rated historical participant is not a reliable
+        # indicator of this contest's official eligibility cutoff.
         candidates = [p for p in changes if abs(p['oldRating'] - curr) < 300]
         if not candidates: candidates = changes
 
@@ -493,10 +490,13 @@ def get_processed_data(handle, init_rating):
         delta_int = int(round(final_delta))
         
         curr += delta_int
+        rated_count += 1
+        after_display = visible_rating(curr, rated_count, newcomer_mode)
         sim_history.append({
             "date": datetime.fromtimestamp(event['ts']),
-            "rating": curr, "type": event['type'], "name": cname,
-            "rank": event['rank'], "delta": delta_int
+            "rating": after_display, "type": event['type'], "name": cname,
+            "rank": event['rank'], "delta": after_display - before_display,
+            "unrated": False
         })
     
     gc.collect()
