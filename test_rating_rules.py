@@ -1,9 +1,13 @@
 import unittest
 
-from rating_rules import NEWCOMER_BONUSES, parse_unrated_vp_ids, visible_rating
+from rating_rules import NEWCOMER_BONUSES, DEFAULT_INITIAL_RATING, INTERNAL_START, parse_unrated_vp_ids, visible_rating
 
 
 class RatingRulesTests(unittest.TestCase):
+    def test_fixed_initial_rating_for_both_modes(self):
+        self.assertEqual(DEFAULT_INITIAL_RATING, 100)
+        self.assertEqual(INTERNAL_START, 1400)
+
     def test_new_account_starts_displaying_zero(self):
         self.assertEqual(visible_rating(1400, 0, newcomer_mode=True), 0)
 
