@@ -16,7 +16,7 @@ import statistics
 from cf_api import CFAPIError, get_json
 from predictor_core import estimate_delta
 
-DEFAULT_IDS = (1850, 1860, 1870, 1890, 1900, 1915, 1920, 1930, 1940, 1950)
+DEFAULT_IDS = (1850, 1860, 1870, 1890, 1900, 1915, 1920, 1930, 1950, 1960)
 
 
 def evaluate_contest(changes, sample_size=25):
