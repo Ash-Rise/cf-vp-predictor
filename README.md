@@ -78,7 +78,3 @@ GitHub Actions 会安装真实运行依赖、检查 Python 模块导入并运行
 ## 致谢与来源
 
 本项目 Fork 自 [vividStareium/cf-vp-predictor](https://github.com/vividStareium/cf-vp-predictor)。保留其基于同场参考选手估算 Rating Delta 的核心思路，在此基础上改进了数据处理、交互管理和预测结果解释。
-
----
-
-[Read this documentation in English](README_EN.md)
