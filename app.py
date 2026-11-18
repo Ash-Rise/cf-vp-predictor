@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import gc 
 import threading
 import shutil
+from vp_utils import group_vp_sessions, estimate_vp_rank
 
 api_lock = threading.Semaphore(2)
 file_lock = threading.Lock()
@@ -233,86 +234,39 @@ def get_json(url, params=None, use_cache=True):
     return None
 
 def get_official_standings(cid):
-    """获取公开的官方纯净榜单（含题目满分数据），无任何权限限制"""
-    try:
-        resp = requests.get("https://codeforces.com/api/contest.standings", params={"contestId": cid}, timeout=15)
-        if resp.status_code == 200:
-            return resp.json().get('result')
-    except Exception as e:
-        print(f"获取 {cid} 榜单失败: {e}")
+    """Fetch public official standings, reusing the existing API concurrency limit."""
+    url = "https://codeforces.com/api/contest.standings"
+    for attempt in range(3):
+        try:
+            with api_lock:
+                time.sleep(0.35 if attempt == 0 else 1.5 * attempt)
+                resp = requests.get(url, params={"contestId": cid}, timeout=25)
+            if resp.status_code in (429, 430):
+                time.sleep(2 * (attempt + 1))
+                continue
+            resp.raise_for_status()
+            payload = resp.json()
+            if payload.get("status") == "OK":
+                return payload["result"]
+            print(f"Contest {cid}: standings API error: {payload.get('comment')}")
+            break
+        except Exception as exc:
+            print(f"Contest {cid}: standings request failed: {exc}")
     return None
 
-def fetch_vp_rank(cid, handle, sub_ts):
+
+def fetch_vp_rank(cid, sub_ts, session_subs):
     contest_name = f"Contest {cid}"
-    matched_rank = 0
-    
-    subs = get_json("https://codeforces.com/api/user.status", {"handle": handle}, use_cache=True)
-    if not subs:
+    standings = get_official_standings(cid)
+    if not standings:
         return cid, 0, contest_name, sub_ts
-
-    vp_subs = [s for s in subs if s.get('contestId') == cid and s.get('author', {}).get('participantType') == 'VIRTUAL']
-    vp_subs.sort(key=lambda x: x['creationTimeSeconds'])
-    
-    if not vp_subs:
+    contest_name = standings["contest"].get("name", contest_name)
+    rank = estimate_vp_rank(session_subs, sub_ts, standings)
+    if rank is None:
+        print(f"Contest {cid}: unsupported VP scoring mode {standings['contest'].get('type')}")
         return cid, 0, contest_name, sub_ts
+    return cid, rank, contest_name, sub_ts
 
-    vp_start_time = vp_subs[0]['author'].get('startTimeSeconds', sub_ts)
-    
-    ac_problems = {} 
-    wa_counts = {}
-    
-    for sub in vp_subs:
-        pid = sub['problem']['index']
-        if pid in ac_problems: 
-            continue 
-            
-        verdict = sub.get('verdict')
-        if verdict == 'OK':
-            elapsed_mins = (sub['creationTimeSeconds'] - vp_start_time) // 60
-            ac_problems[pid] = (elapsed_mins, wa_counts.get(pid, 0))
-        elif verdict not in ['COMPILATION_ERROR', 'TESTING']:
-            wa_counts[pid] = wa_counts.get(pid, 0) + 1
-
-    standings_data = get_official_standings(cid)
-    if not standings_data:
-        return cid, 0, contest_name, sub_ts
-        
-    contest_name = standings_data['contest'].get('name', contest_name)
-    contest_type = standings_data['contest'].get('type', 'CF')
-    problems_info = standings_data['problems']
-    rows = standings_data['rows']
-
-    total_points = 0
-    total_penalty = 0
-
-    if contest_type == 'ICPC':
-        total_points = len(ac_problems)
-        for pid, (mins, wa) in ac_problems.items():
-            total_penalty += mins + wa * 20
-    else:
-        for pid, (mins, wa) in ac_problems.items():
-            base_points = 0
-            for p in problems_info:
-                if p['index'] == pid:
-                    base_points = p.get('points', 0)
-                    break
-            
-            if base_points > 0:
-                score = max(base_points * 0.3, base_points - (base_points / 250) * mins) - 50 * wa
-                total_points += max(0, score) 
-                
-    matched_rank = len(rows) + 1
-    for i, row in enumerate(rows):
-        if contest_type == 'ICPC':
-            if row['points'] < total_points or (row['points'] == total_points and row['penalty'] > total_penalty):
-                matched_rank = i + 1
-                break
-        else:
-            if row['points'] < total_points:
-                matched_rank = i + 1
-                break
-
-    return cid, matched_rank, contest_name, sub_ts
 
 def fetch_rating_changes_to_disk(cid):
     get_json("https://codeforces.com/api/contest.ratingChanges", {"contestId": cid}, use_cache=True)
@@ -374,33 +328,20 @@ def get_processed_data(handle, init_rating):
     progress_bar.progress(5)
     subs = get_json("https://codeforces.com/api/user.status", {"handle": handle}, use_cache=False)
     
-    final_vp_list = []
-    
-    if subs:
-        vp_timestamps = {} 
-        for s in subs:
-            if s.get('author', {}).get('participantType') == 'VIRTUAL':
-                cid = s['contestId']
-                ts = s['creationTimeSeconds']
-                if cid not in vp_timestamps: vp_timestamps[cid] = []
-                vp_timestamps[cid].append(ts)
-        
-        for cid, times in vp_timestamps.items():
-            times.sort()
-            curr_start = times[0]
-            final_vp_list.append((cid, curr_start)) 
-            for k in range(1, len(times)):
-                if times[k] - times[k-1] > 2 * 24 * 3600:
-                    curr_start = times[k]
-                    final_vp_list.append((cid, curr_start))
+    # Keep the fresh submission response and pass each VP run to its worker.
+    # Re-fetching user.status with use_cache=True could silently read stale data.
+    vp_sessions = [
+        (cid, start, session_subs)
+        for cid, start, session_subs in group_vp_sessions(subs)
+        if cid < 100000
+    ]
+    total_vp = len(vp_sessions)
 
-    valid_vp_list = [x for x in final_vp_list if x[0] < 100000]
-    total_vp = len(valid_vp_list)
-    
     if total_vp > 0:
         status_text.text(f"Retrieving ranks for {total_vp} virtual contests...")
-        tasks = [(cid, handle, ts) for cid, ts in valid_vp_list]
+        tasks = [(cid, start, session_subs) for cid, start, session_subs in vp_sessions]
         progress_tracker = {"count": 0}
+
         def vp_progress_cb():
             progress_tracker["count"] += 1
             completed = progress_tracker["count"]
@@ -409,9 +350,9 @@ def get_processed_data(handle, init_rating):
             status_text.text(f"Analyzing VP: {completed}/{total_vp}")
 
         vp_results = process_batches(tasks, fetch_vp_rank, max_workers=5, update_callback=vp_progress_cb)
-
         for res in vp_results:
-            if not res: continue
+            if not res:
+                continue
             cid, rank, cname, ts = res
             if rank > 0:
                 events.append({
@@ -420,7 +361,7 @@ def get_processed_data(handle, init_rating):
 
     events.sort(key=lambda x: x['ts'])
     
-    target_cids = [e['cid'] for e in events if e['cid'] < 100000]
+    target_cids = sorted({e['cid'] for e in events if e['cid'] < 100000})
     total_downloads = len(target_cids)
     
     if total_downloads > 0:
