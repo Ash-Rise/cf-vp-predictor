@@ -10,7 +10,7 @@ from cf_api import CFAPIError, clear_personal_cache, get_json, get_user_submissi
 from chart_controls import PLOTLY_CONFIG, lock_rating_chart
 from persistent_handle import persistent_handle_input
 from predictor_core import build_official_events, modeled_vp_contribution, simulate
-from unrated_storage import parse_saved_value, sync_unrated_storage
+from vp_browser_state import parse_saved_value, sync_unrated_storage
 from vp_utils import group_vp_sessions, reconstruct_vp_result
 
 

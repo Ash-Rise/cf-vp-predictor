@@ -1,4 +1,4 @@
-"""Keep per-VP Unrated selections in this browser (not on the server).
+"""Sync per-VP Unrated selections and the browser's layout preference.
 
 Components v2 sends a saved list to Python when its localStorage data is read.
 A write is performed only when the user changes a VP checkbox. No

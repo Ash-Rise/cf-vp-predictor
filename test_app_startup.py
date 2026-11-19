@@ -1,7 +1,8 @@
 """Startup smoke test: exercise the Streamlit entrypoint, not just helper imports.
 
-The custom handle component's browser JS cannot run in AppTest; only that
-browser-facing input is stubbed. All other app modules import normally.
+The custom handle component's browser JS cannot run in AppTest, so that
+input is stubbed. The test also simulates a Cloud hot update with the old
+Unrated storage module still loaded.
 """
 
 import sys
@@ -47,7 +48,12 @@ class StartupTests(unittest.TestCase):
             }],
         }
 
-        with patch.dict(sys.modules, {"persistent_handle": fake}):
+        cached_storage = types.ModuleType("unrated_storage")
+        cached_storage.parse_saved_value = lambda *args: None
+        cached_storage.sync_unrated_storage = lambda *args, **kwargs: '{"handle":"tester","keys":[]}'
+        with patch.dict(sys.modules, {
+            "persistent_handle": fake, "unrated_storage": cached_storage,
+        }):
             app = AppTest.from_file("app.py", default_timeout=25)
             app.session_state["analysis_data"] = fake_data
             app.run()

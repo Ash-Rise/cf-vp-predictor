@@ -1,6 +1,6 @@
 import unittest
 
-from unrated_storage import parse_saved_value
+from vp_browser_state import parse_saved_value
 
 
 class UnratedBrowserSettingsTests(unittest.TestCase):
