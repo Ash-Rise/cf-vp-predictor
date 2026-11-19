@@ -2,7 +2,9 @@
 
 [简体中文](README.md) · **English**
 
-[Live demo](https://ashrise-cf-vp-predictor.streamlit.app/) · [GitHub repository](https://github.com/Ash-Rise/cf-vp-predictor) · [Codeforces API](https://codeforces.com/apiHelp)
+[Live demo](https://ashrise-cf-vp-predictor.streamlit.app/)
+
+![Codeforces VP Rating Simulator preview showing the rating history, VP manager, and per-contest prediction details](assets/cf-vp-predictor-banner.png)
 
 A **Streamlit** tool that reconstructs Codeforces Virtual Participation (VP) results from a user's submission history and estimates a hypothetical Rating trajectory that includes VPs alongside officially rated contests.
 

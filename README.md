@@ -2,7 +2,9 @@
 
 **简体中文** · [English](README_EN.md)
 
-[在线体验](https://ashrise-cf-vp-predictor.streamlit.app/) · [GitHub 仓库](https://github.com/Ash-Rise/cf-vp-predictor) · [Codeforces API](https://codeforces.com/apiHelp)
+[在线体验](https://ashrise-cf-vp-predictor.streamlit.app/)
+
+![Codeforces VP Rating 模拟器预览，展示 Rating 走势图、VP 管理器和单场预测详情](assets/cf-vp-predictor-banner.png)
 
 一个基于 **Streamlit** 的 Codeforces Rating 模拟工具：读取用户的正式比赛记录和虚拟参赛（VP）提交，重建 VP 成绩，并估算将这些 VP 计入 Rated 历史之后的 Rating 走势。
 
